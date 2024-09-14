@@ -1,8 +1,14 @@
+use std::fmt::Debug;
+
 use crate::piece::Piece;
 
 pub struct Board {
     pub rows: [BoardRow; 20],
     pub cols: [BoardCol; 10],
+    pub lines_cleared: usize,
+    pub lines_cleared_max: usize,
+    pub finished: bool,
+    pub score: usize,
 }
 
 impl Board {
@@ -10,14 +16,36 @@ impl Board {
         Self {
             rows: [BoardRow::default(); 20],
             cols: [BoardCol::default(); 10],
+            lines_cleared: 0,
+            lines_cleared_max: 130,
+            finished: false,
+            score: 0,
         }
     }
 
     pub fn remove_clears(&mut self) {
+        let mut lines_cleared = 0;
+
         for i in (0..20).rev() {
             if self.rows[i].full() {
                 self.remove_row(i);
+                lines_cleared += 1;
             }
+        }
+
+        self.score += match lines_cleared {
+            0 => 0,
+            1 => 40,
+            2 => 100,
+            3 => 300,
+            4 => 1200,
+            _ => panic!("Cleared more than 4 lines"),
+        };
+
+        self.lines_cleared += lines_cleared;
+
+        if self.lines_cleared >= self.lines_cleared_max {
+            self.finished = true;
         }
     }
 
@@ -71,6 +99,50 @@ impl Board {
         }
 
         res
+    }
+
+    pub fn find_choices(&self, piece_type: crate::piece::PieceType) -> Vec<Board> {
+        todo!()
+    }
+}
+
+impl Debug for Board {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Board [")?;
+
+        writeln!(f, "   ..........")?;
+
+        for i in 0..20 {
+            write!(f, "  |")?;
+
+            for j in 0..10 {
+                if self.get(i, j) {
+                    write!(f, "█")?;
+                } else {
+                    write!(f, " ")?;
+                }
+            }
+
+            writeln!(f, "|")?;
+        }
+
+        writeln!(f, "  \\----------/")?;
+        writeln!(f)?;
+
+        writeln!(
+            f,
+            "  lines: {}/{}",
+            self.lines_cleared, self.lines_cleared_max
+        )?;
+
+        writeln!(f, "  score: {}", self.score)?;
+        writeln!(
+            f,
+            "  eff  : {}",
+            ((self.score as f32) / (self.lines_cleared as f32)).round() as i64
+        )?;
+
+        writeln!(f, "]")
     }
 }
 

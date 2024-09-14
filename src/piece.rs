@@ -4,7 +4,8 @@ pub struct Piece {
     pub pos: (isize, isize),
 }
 
-enum PieceType {
+#[derive(Clone, Copy)]
+pub enum PieceType {
     I,
     O,
     J,
@@ -72,6 +73,18 @@ impl Piece {
 }
 
 impl PieceType {
+    pub fn list() -> &'static [PieceType; 7] {
+        &[
+            PieceType::I,
+            PieceType::O,
+            PieceType::J,
+            PieceType::L,
+            PieceType::S,
+            PieceType::Z,
+            PieceType::T,
+        ]
+    }
+
     pub fn grids(&self) -> [u16; 4] {
         match self {
             PieceType::I => [
