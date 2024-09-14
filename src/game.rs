@@ -1,4 +1,4 @@
-use rand::{rngs::ThreadRng, Rng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::fmt::Debug;
 
 use crate::{board::Board, board_eval::BoardEval, piece_type_generator::PieceTypeGenerator};
@@ -8,7 +8,7 @@ pub struct Game {
     pub last_board: Board,
     pub board_eval: BoardEval,
     pub piece_type_generator: PieceTypeGenerator,
-    pub rng: ThreadRng,
+    pub rng: StdRng,
 }
 
 impl Game {
@@ -18,7 +18,7 @@ impl Game {
             last_board: Board::new(),
             board_eval: BoardEval::new(),
             piece_type_generator: PieceTypeGenerator::new(),
-            rng: rand::thread_rng(),
+            rng: StdRng::seed_from_u64(0),
         }
     }
 
@@ -104,6 +104,10 @@ impl Debug for Game {
             (4.0 * self.board.tetrises as f32) / (self.board.lines_cleared as f32)
         )?;
 
-        writeln!(f, "]")
+        writeln!(f, "  str  : {}", self.board.to_compact_string(),)?;
+
+        writeln!(f, "]")?;
+
+        Ok(())
     }
 }

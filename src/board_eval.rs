@@ -7,7 +7,12 @@ impl BoardEval {
         BoardEval {}
     }
 
-    pub fn eval(&self, _board: &Board) -> f32 {
-        0.0 // TODO
+    pub fn eval(&self, board: &Board) -> f32 {
+        let max_height: usize = board
+            .heights()
+            .iter()
+            .fold(0, |acc, h| std::cmp::max(acc, *h));
+
+        -(max_height as f32)
     }
 }

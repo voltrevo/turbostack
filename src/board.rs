@@ -1,6 +1,6 @@
-use std::{collections::HashSet, fmt::Debug};
+use std::{collections::BTreeSet, fmt::Debug};
 
-use crate::piece::{Piece, PieceType};
+use crate::piece::{Piece, PieceType, RotateDir};
 
 #[derive(Clone)]
 pub struct Board {
@@ -24,6 +24,19 @@ impl Board {
             score: 0,
             tetrises: 0,
         }
+    }
+
+    #[allow(dead_code)] // TODO
+    pub fn from_compact(s: &str) -> Board {
+        let mut board = Self::new();
+
+        for (x, c) in s.chars().enumerate() {
+            if c == '1' {
+                board.flip(x / 10, x % 10);
+            }
+        }
+
+        board
     }
 
     pub fn remove_clears(&mut self) {
@@ -87,6 +100,7 @@ impl Board {
         self.get(i as usize, j as usize)
     }
 
+    #[allow(dead_code)] // TODO
     pub fn set(&mut self, i: usize, j: usize, value: bool) {
         self.rows[i].set(j, value);
         self.cols[j].set(i, value);
@@ -97,14 +111,62 @@ impl Board {
         self.cols[j].flip(i);
     }
 
-    pub fn can_fit_piece(&self, piece: &Piece) -> bool {
-        let mut res = true;
-
+    pub fn piece_overlaps(&self, piece: &Piece) -> bool {
         for (i, j) in piece.cell_positions() {
-            res = res && !self.get_signed(i, j);
+            if self.get_signed(i, j) {
+                return true;
+            }
         }
 
-        res
+        return false;
+    }
+
+    pub fn can_fit_piece(&self, piece: &Piece) -> bool {
+        if self.piece_overlaps(piece) {
+            return false;
+        }
+
+        // the simple test: is every cell above the height of the column
+        if self.piece_reachable_simple(piece) {
+            return true;
+        }
+
+        // less simple test: can we rotate or shift into a position that passes simple test
+        // (this means we don't fully check possible paths - only one spin or tuck)
+
+        // TODO: performance: PieceType::O can't be rotated and I, S, Z have only one alt rotation
+        for dir in [RotateDir::Cw, RotateDir::Ccw] {
+            let mut alt_piece = piece.clone();
+            alt_piece.rotate(dir);
+
+            if !self.piece_overlaps(&alt_piece) && self.piece_reachable_simple(&alt_piece) {
+                return true;
+            }
+        }
+
+        for j_shift in [-1_isize, 1_isize] {
+            let mut alt_piece = piece.clone();
+            alt_piece.pos.1 += j_shift;
+
+            if !self.piece_overlaps(&alt_piece) && self.piece_reachable_simple(&alt_piece) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    pub fn piece_reachable_simple(&self, piece: &Piece) -> bool {
+        for (i, j) in piece.cell_positions() {
+            let cell_height = 20 - i as usize;
+            let col_height = self.cols[j as usize].height();
+
+            if cell_height <= col_height {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     pub fn insert_piece_unchecked(&mut self, piece: &Piece) {
@@ -114,7 +176,9 @@ impl Board {
     }
 
     pub fn find_choices(&self, piece_type: PieceType) -> Vec<Board> {
-        let mut fittable_pieces = HashSet::<Piece>::new();
+        // TODO: performance: this can be HashSet
+        // (using BTreeSet for reproducibility for debugging)
+        let mut fittable_pieces = BTreeSet::<Piece>::new();
 
         let rest_positions = self.find_rest_positions();
 
@@ -156,6 +220,22 @@ impl Board {
 
         for j in 0..10 {
             res.append(&mut self.cols[j].find_rest_positions(j as isize));
+        }
+
+        res
+    }
+
+    pub fn heights(&self) -> [usize; 10] {
+        self.cols.map(|c| c.height())
+    }
+
+    pub fn to_compact_string(&self) -> String {
+        let mut res = String::new();
+
+        for i in 0..20 {
+            for j in 0..10 {
+                res.push(if self.get(i, j) { '1' } else { '0' });
+            }
         }
 
         res

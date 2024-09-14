@@ -11,8 +11,8 @@ fn main() {
 
     println!("{:?}", &game);
 
-    for _ in 0..10 {
+    for i in 0..10 {
         game.step();
-        println!("{:?}", &game);
+        println!("step {}: {:?}", i, &game);
     }
 }

@@ -1,11 +1,11 @@
-#[derive(Hash, PartialEq, Eq, Clone)]
+#[derive(Hash, PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub struct Piece {
     pub type_: PieceType,
     pub grid: u16,
     pub pos: (isize, isize),
 }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PieceType {
     I,
     O,
@@ -16,12 +16,13 @@ pub enum PieceType {
     T,
 }
 
-enum RotateDir {
+pub enum RotateDir {
     Cw,
     Ccw,
 }
 
 impl Piece {
+    #[allow(dead_code)] // TODO
     pub fn num_rotations(&self) -> usize {
         match self.type_ {
             PieceType::I => 2,
@@ -46,6 +47,7 @@ impl Piece {
         self.grid = grids[(grid_i + offset) % 4];
     }
 
+    #[allow(dead_code)] // TODO
     pub fn at(&self, i: usize, j: usize) -> bool {
         self.grid & (1 << (4 * i + j)) != 0
     }
