@@ -3,10 +3,10 @@ use rand::{rngs::ThreadRng, Rng};
 use crate::{board::Board, board_eval::BoardEval, piece_type_generator::PieceTypeGenerator};
 
 pub struct Game {
-    board: Board,
-    board_eval: BoardEval,
-    piece_type_generator: PieceTypeGenerator,
-    rng: ThreadRng,
+    pub board: Board,
+    pub board_eval: BoardEval,
+    pub piece_type_generator: PieceTypeGenerator,
+    pub rng: ThreadRng,
 }
 
 impl Game {

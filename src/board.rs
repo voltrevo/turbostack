@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::piece::Piece;
+use crate::piece::{Piece, PieceType};
 
 pub struct Board {
     pub rows: [BoardRow; 20],
@@ -101,7 +101,7 @@ impl Board {
         res
     }
 
-    pub fn find_choices(&self, piece_type: crate::piece::PieceType) -> Vec<Board> {
+    pub fn find_choices(&self, piece_type: PieceType) -> Vec<Board> {
         todo!()
     }
 }
