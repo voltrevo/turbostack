@@ -37,10 +37,12 @@ impl Board {
 
     pub fn set(&mut self, i: usize, j: usize, value: bool) {
         self.rows[i].set(j, value);
+        self.cols[j].set(i, value);
     }
 
     pub fn flip(&mut self, i: usize, j: usize) {
         self.rows[i].flip(j);
+        self.cols[j].flip(i);
     }
 }
 
@@ -76,12 +78,26 @@ pub struct BoardCol(u32);
 
 impl BoardCol {
     pub fn remove_row(&mut self, i: usize) {
-        let keep_mask = (1 << (20 - i - 1)) - 1;
+        let keep_mask = (1 << (19 - i)) - 1;
         let shift = self.0 >> 1;
         self.0 = !keep_mask & shift | keep_mask & self.0;
     }
 
     pub fn height(&self) -> usize {
         (32 - self.0.leading_zeros()) as usize
+    }
+
+    pub fn set(&mut self, i: usize, value: bool) {
+        let mask = 1 << (19 - i);
+
+        if value {
+            self.0 |= mask;
+        } else {
+            self.0 &= !mask;
+        }
+    }
+
+    pub fn flip(&mut self, i: usize) {
+        self.0 ^= 1 << (19 - i);
     }
 }
