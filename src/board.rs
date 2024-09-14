@@ -2,6 +2,7 @@ use std::{collections::HashSet, fmt::Debug};
 
 use crate::piece::{Piece, PieceType};
 
+#[derive(Clone)]
 pub struct Board {
     pub rows: [BoardRow; 20],
     pub cols: [BoardCol; 10],
@@ -99,17 +100,65 @@ impl Board {
     pub fn can_fit_piece(&self, piece: &Piece) -> bool {
         let mut res = true;
 
-        for (i, j) in piece.board_squares() {
+        for (i, j) in piece.cell_positions() {
             res = res && !self.get_signed(i, j);
         }
 
         res
     }
 
-    pub fn find_choices(&self, piece_type: PieceType) -> Vec<Board> {
-        let pieces = HashSet::<Piece>::new();
+    pub fn insert_piece_unchecked(&mut self, piece: &Piece) {
+        for (i, j) in piece.cell_positions() {
+            self.flip(i as usize, j as usize);
+        }
+    }
 
-        todo!()
+    pub fn find_choices(&self, piece_type: PieceType) -> Vec<Board> {
+        let mut fittable_pieces = HashSet::<Piece>::new();
+
+        let rest_positions = self.find_rest_positions();
+
+        for grid in piece_type.grids() {
+            let piece = Piece {
+                type_: piece_type,
+                grid,
+                pos: (0, 0),
+            };
+
+            for cell_pos in piece.cell_positions() {
+                for rest_pos in rest_positions.iter().cloned() {
+                    let mut new_piece = piece.clone();
+                    // translate the piece so that the current cell is at the rest position
+                    new_piece.pos = (rest_pos.0 - cell_pos.0, rest_pos.1 - cell_pos.1);
+
+                    // TODO: performance: can skip check for rest_pos
+                    if self.can_fit_piece(&new_piece) {
+                        fittable_pieces.insert(new_piece);
+                    }
+                }
+            }
+        }
+
+        let mut res = Vec::<Board>::new();
+
+        for piece in &fittable_pieces {
+            let mut board = self.clone();
+            board.insert_piece_unchecked(piece);
+            board.remove_clears(); // TODO: performance: only check affected rows
+            res.push(board);
+        }
+
+        res
+    }
+
+    pub fn find_rest_positions(&self) -> Vec<(isize, isize)> {
+        let mut res = Vec::<_>::new();
+
+        for j in 0..10 {
+            res.append(&mut self.cols[j].find_rest_positions(j as isize));
+        }
+
+        res
     }
 }
 
@@ -220,24 +269,22 @@ impl BoardCol {
     }
 
     pub fn find_rest_positions(&self, j: isize) -> Vec<(isize, isize)> {
-        let x = 32 - (self.0.leading_zeros() as isize);
+        let height = self.height() as isize;
 
-        if x == 20 {
-            return vec![];
-        }
+        let mut res = if height == 20 {
+            vec![]
+        } else {
+            vec![(19 - height, j)]
+        };
 
-        let first = 19 - x;
-
-        let y = 1 << x;
+        let y = 1 << height;
         let full_otherwise = y - 1;
-
-        let mut res = vec![(first, j)];
 
         if self.0 == full_otherwise {
             return res;
         }
 
-        for i in (first + 2)..20 {
+        for i in (21 - height)..20 {
             if self.get(i as usize) == false {
                 res.push((i, j));
             }

@@ -1,10 +1,11 @@
+#[derive(Hash, PartialEq, Eq, Clone)]
 pub struct Piece {
     pub type_: PieceType,
     pub grid: u16,
     pub pos: (isize, isize),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub enum PieceType {
     I,
     O,
@@ -50,7 +51,7 @@ impl Piece {
     }
 
     // TODO: performance: speed up with static data?
-    pub fn board_squares(&self) -> [(isize, isize); 4] {
+    pub fn cell_positions(&self) -> [(isize, isize); 4] {
         let mut res: [(isize, isize); 4] = [(0, 0); 4];
         let mut res_i = 0;
 
