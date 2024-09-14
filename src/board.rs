@@ -9,6 +9,7 @@ pub struct Board {
     pub lines_cleared_max: usize,
     pub finished: bool,
     pub score: usize,
+    pub tetrises: usize,
 }
 
 impl Board {
@@ -20,6 +21,7 @@ impl Board {
             lines_cleared_max: 130,
             finished: false,
             score: 0,
+            tetrises: 0,
         }
     }
 
@@ -38,7 +40,10 @@ impl Board {
             1 => 40,
             2 => 100,
             3 => 300,
-            4 => 1200,
+            4 => {
+                self.tetrises += 1;
+                1200
+            }
             _ => panic!("Cleared more than 4 lines"),
         };
 
@@ -110,23 +115,23 @@ impl Debug for Board {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Board [")?;
 
-        writeln!(f, "   ..........")?;
+        writeln!(f, "   ....................")?;
 
         for i in 0..20 {
             write!(f, "  |")?;
 
             for j in 0..10 {
                 if self.get(i, j) {
-                    write!(f, "█")?;
+                    write!(f, "██")?;
                 } else {
-                    write!(f, " ")?;
+                    write!(f, "  ")?;
                 }
             }
 
             writeln!(f, "|")?;
         }
 
-        writeln!(f, "  \\----------/")?;
+        writeln!(f, "  \\--------------------/")?;
         writeln!(f)?;
 
         writeln!(
@@ -136,10 +141,17 @@ impl Debug for Board {
         )?;
 
         writeln!(f, "  score: {}", self.score)?;
+
         writeln!(
             f,
             "  eff  : {}",
             ((self.score as f32) / (self.lines_cleared as f32)).round() as i64
+        )?;
+
+        writeln!(
+            f,
+            "  trt  : {:.1}%",
+            (4.0 * self.tetrises as f32) / (self.lines_cleared as f32)
         )?;
 
         writeln!(f, "]")
