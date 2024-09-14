@@ -72,7 +72,7 @@ impl Board {
     }
 
     pub fn get_signed(&self, i: isize, j: isize) -> bool {
-        if j < 0 || j >= 20 {
+        if j < 0 || j >= 10 {
             return true;
         }
 
