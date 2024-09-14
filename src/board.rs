@@ -1,3 +1,5 @@
+use crate::piece::Piece;
+
 pub struct Board {
     pub rows: [BoardRow; 20],
     pub cols: [BoardCol; 10],
@@ -35,6 +37,22 @@ impl Board {
         self.rows[i].get(j)
     }
 
+    pub fn get_signed(&self, i: isize, j: isize) -> bool {
+        if j < 0 || j >= 20 {
+            return true;
+        }
+
+        if i >= 20 {
+            return true;
+        }
+
+        if i < 0 {
+            return false;
+        }
+
+        self.get(i as usize, j as usize)
+    }
+
     pub fn set(&mut self, i: usize, j: usize, value: bool) {
         self.rows[i].set(j, value);
         self.cols[j].set(i, value);
@@ -43,6 +61,16 @@ impl Board {
     pub fn flip(&mut self, i: usize, j: usize) {
         self.rows[i].flip(j);
         self.cols[j].flip(i);
+    }
+
+    pub fn can_fit_piece(&self, piece: &Piece) -> bool {
+        let mut res = true;
+
+        for (i, j) in piece.board_squares() {
+            res = res && !self.get_signed(i, j);
+        }
+
+        res
     }
 }
 
