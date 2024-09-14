@@ -246,8 +246,8 @@ impl Board {
         let mut res = Vec::<_>::new();
 
         for j in 0..10 {
-            for i in self.cols[0].overhangs() {
-                res.push((i, j));
+            for i in self.cols[j].overhangs() {
+                res.push((i, j as isize));
             }
         }
 
@@ -258,7 +258,7 @@ impl Board {
         let mut res = Vec::<_>::new();
 
         for j in 0..10 {
-            for i in self.cols[0].overhangs() {
+            for i in self.cols[j as usize].overhangs() {
                 if self.get_signed(i, j - 1) && self.get_signed(i, j + 1) {
                     res.push((i, j));
                 }
