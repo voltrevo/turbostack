@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{collections::HashSet, fmt::Debug};
 
 use crate::piece::{Piece, PieceType};
 
@@ -107,6 +107,8 @@ impl Board {
     }
 
     pub fn find_choices(&self, piece_type: PieceType) -> Vec<Board> {
+        let pieces = HashSet::<Piece>::new();
+
         todo!()
     }
 }
@@ -199,6 +201,10 @@ impl BoardCol {
         (32 - self.0.leading_zeros()) as usize
     }
 
+    pub fn get(&self, i: usize) -> bool {
+        (self.0 & (1 << (19 - i))) != 0
+    }
+
     pub fn set(&mut self, i: usize, value: bool) {
         let mask = 1 << (19 - i);
 
@@ -211,5 +217,32 @@ impl BoardCol {
 
     pub fn flip(&mut self, i: usize) {
         self.0 ^= 1 << (19 - i);
+    }
+
+    pub fn find_rest_positions(&self, j: isize) -> Vec<(isize, isize)> {
+        let x = 32 - (self.0.leading_zeros() as isize);
+
+        if x == 20 {
+            return vec![];
+        }
+
+        let first = 19 - x;
+
+        let y = 1 << x;
+        let full_otherwise = y - 1;
+
+        let mut res = vec![(first, j)];
+
+        if self.0 == full_otherwise {
+            return res;
+        }
+
+        for i in (first + 2)..20 {
+            if self.get(i as usize) == false {
+                res.push((i, j));
+            }
+        }
+
+        res
     }
 }
