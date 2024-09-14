@@ -42,7 +42,7 @@ impl Board {
     pub fn remove_clears(&mut self) {
         let mut lines_cleared = 0;
 
-        for i in (0..20).rev() {
+        for i in 0..20 {
             if self.rows[i].full() {
                 self.remove_row(i);
                 lines_cleared += 1;
@@ -259,7 +259,18 @@ impl Board {
 
         for j in 0..10 {
             for i in self.cols[j as usize].overhangs() {
-                if self.get_signed(i, j - 1) && self.get_signed(i, j + 1) {
+                let left_closed = self.get_signed(i, j - 1);
+                let right_closed = self.get_signed(i, j + 1);
+
+                if left_closed && right_closed {
+                    res.push((i, j));
+                } else if left_closed && self.get_signed(i - 1, j + 1) {
+                    // also consider this as a hole if the overhang is 2 deep
+                    // (not exactly a hole but we assume you can't double tuck so you can't get a
+                    // piece in there)
+                    res.push((i, j));
+                } else if right_closed && self.get_signed(i - 1, j - 1) {
+                    // same as above but other side
                     res.push((i, j));
                 }
             }
