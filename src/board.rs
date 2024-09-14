@@ -173,7 +173,7 @@ impl Debug for Board {
 
             for j in 0..10 {
                 if self.get(i, j) {
-                    write!(f, "██")?;
+                    write!(f, "[]")?;
                 } else {
                     write!(f, "  ")?;
                 }

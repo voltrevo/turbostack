@@ -9,11 +9,10 @@ mod piece_type_generator;
 fn main() {
     let mut game = Game::new();
 
-    println!("{:?}", &game.board);
+    println!("{:?}", &game);
 
     for _ in 0..10 {
         game.step();
+        println!("{:?}", &game);
     }
-
-    println!("{:?}", &game.board);
 }
