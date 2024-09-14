@@ -240,6 +240,33 @@ impl Board {
 
         res
     }
+
+    // TODO: performance: calc overlaps with holes
+    pub fn overhangs(&self) -> Vec<(isize, isize)> {
+        let mut res = Vec::<_>::new();
+
+        for j in 0..10 {
+            for i in self.cols[0].overhangs() {
+                res.push((i, j));
+            }
+        }
+
+        res
+    }
+
+    pub fn holes(&self) -> Vec<(isize, isize)> {
+        let mut res = Vec::<_>::new();
+
+        for j in 0..10 {
+            for i in self.cols[0].overhangs() {
+                if self.get_signed(i, j - 1) && self.get_signed(i, j + 1) {
+                    res.push((i, j));
+                }
+            }
+        }
+
+        res
+    }
 }
 
 impl Debug for Board {
@@ -334,6 +361,11 @@ impl BoardCol {
         (self.0 & (1 << (19 - i))) != 0
     }
 
+    // allows "-1" without a branch
+    pub fn get_minus1(&self, i: usize) -> bool {
+        (self.0 & (1 << (20 - i))) != 0
+    }
+
     pub fn set(&mut self, i: usize, value: bool) {
         let mask = 1 << (19 - i);
 
@@ -365,8 +397,29 @@ impl BoardCol {
         }
 
         for i in (21 - height)..20 {
-            if self.get(i as usize) == false {
+            if self.get(i as usize) == false && (i == 19 || self.get((i + 1) as usize)) == true {
                 res.push((i, j));
+            }
+        }
+
+        res
+    }
+
+    fn overhangs(&self) -> Vec<isize> {
+        let height = self.height() as isize;
+
+        let mut res = vec![];
+
+        let y = 1 << height;
+        let full_otherwise = y - 1;
+
+        if self.0 == full_otherwise {
+            return res;
+        }
+
+        for i in (21 - height)..20 {
+            if self.get(i as usize) == false && self.get_minus1(i as usize) == true {
+                res.push(i);
             }
         }
 

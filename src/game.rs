@@ -104,7 +104,9 @@ impl Debug for Game {
             (4.0 * self.board.tetrises as f32) / (self.board.lines_cleared as f32)
         )?;
 
-        writeln!(f, "  str  : {}", self.board.to_compact_string(),)?;
+        writeln!(f, "  str  : {}", self.board.to_compact_string())?;
+        writeln!(f, "  holes: {}", self.board.holes().len())?;
+        writeln!(f, "  overh: {}", self.board.overhangs().len())?;
 
         writeln!(f, "]")?;
 
