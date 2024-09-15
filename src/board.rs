@@ -338,6 +338,137 @@ impl Board {
 
         Some((depth, j))
     }
+
+    pub fn count_surface_pattern(&self, pattern: &SurfacePattern) -> usize {
+        let mut count = 0;
+
+        'b: for pat_j in pattern.min_j..=pattern.max_j {
+            let ref_top = self.cols[(pat_j + pattern.first_top.1) as usize].top();
+
+            // align pattern so that first_top is a top
+            // pat_i + pattern.first_top.1 == ref_top
+            let pat_i = (ref_top as isize) - pattern.first_top.1;
+
+            for (j, top) in pattern.tops.iter().enumerate() {
+                let top = match top {
+                    Some(top) => *top as usize,
+                    None => continue,
+                };
+
+                if self.cols[(pat_j + (j as isize)) as usize].top() as isize
+                    != pat_i + (top as isize)
+                {
+                    continue 'b;
+                }
+
+                todo!()
+            }
+        }
+
+        count
+    }
+}
+
+pub struct SurfacePattern {
+    first_top: (isize, isize),
+    tops: Vec<Option<isize>>,
+    cells: Vec<(isize, isize, bool)>,
+    min_j: isize,
+    max_j: isize, // inclusive
+}
+
+impl SurfacePattern {
+    pub fn new(pattern: &[&'static str]) -> Self {
+        // eg a symmetric 2-deep well:
+        // "T T"
+        // "1 1"
+        // " T "
+
+        // T: top-most block in the column (pattern must have at least one top)
+        // 1: block present
+        // 0: block absent
+        //  : no requirement
+
+        // asymmetric 2-deep well:
+        // "1  "
+        // "1 T"
+        // "1 1"
+        // " T "
+        // this should be recognized against the left wall (wall counts as 1s)
+
+        let pattern = pattern
+            .iter()
+            .map(|s| s.chars().collect::<Vec<char>>())
+            .collect::<Vec<_>>();
+
+        let pattern_height = pattern.len();
+        assert!(pattern_height > 0);
+
+        let pattern_width = pattern[0].len();
+        assert!(pattern_width > 0);
+
+        for i in 1..pattern_height {
+            assert!(pattern[i].len() == pattern_width);
+        }
+
+        let mut first_top: Option<(isize, isize)> = None;
+        let mut tops: Vec<Option<isize>> = vec![None; pattern_width];
+        let mut cells = Vec::<(isize, isize, bool)>::new();
+
+        for i in 0..pattern_height {
+            for j in 0..pattern_width {
+                match pattern[i][j] {
+                    '0' => cells.push((i as isize, j as isize, false)),
+                    '1' => cells.push((i as isize, j as isize, true)),
+                    'T' => {
+                        assert_eq!(tops[j], None, "duplicate top constraint");
+
+                        if let Some((first_top_i, first_top_j)) = first_top {
+                            assert_ne!(j as isize, first_top_j, "duplicate top constraint");
+                            tops[j] = Some(i as isize);
+                        } else {
+                            first_top = Some((i as isize, j as isize));
+                        }
+                    }
+                    _ => (),
+                };
+            }
+        }
+
+        let mut min_j = 0;
+
+        'b: for j in 0..pattern_width {
+            for i in 0..pattern_height {
+                match pattern[i][j] {
+                    '0' | 'T' => break 'b,
+                    _ => {}
+                }
+            }
+
+            min_j -= 1;
+        }
+
+        let mut max_j = 10 - (pattern_width as isize);
+
+        'b: for j in (0..pattern_width).rev() {
+            for i in 0..pattern_height {
+                match pattern[i][j] {
+                    '0' | 'T' => break 'b,
+                    _ => {}
+                }
+            }
+
+            max_j += 1;
+        }
+
+        Self {
+            first_top: first_top.expect("pattern does not contain a top"),
+            tops,
+            cells,
+            min_j,
+            max_j,
+        }
+    }
 }
 
 impl Debug for Board {
@@ -495,6 +626,13 @@ impl BoardCol {
         }
 
         res
+    }
+
+    // like height, but it's the j value in (i, j) of the top-most block
+    fn top(&self) -> usize {
+        // if height is zero then we consider the top-most block to be underneath the lowest actual
+        // cell
+        20 - self.height()
     }
 }
 
