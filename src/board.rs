@@ -290,6 +290,54 @@ impl Board {
 
         res
     }
+
+    // (depth, j)
+    // (4, j) means tetris ready (for any value of j)
+    // (4, j) means the bottom 2 lines would clear if placing an I piece at j
+    pub fn tetris_readiness(&self) -> Option<(usize, usize)> {
+        let heights = self.cols.map(|c| c.height());
+
+        let mut lowest_height = 21;
+        let mut lowest_height_dups = 0;
+        let mut lowest_j = 0;
+
+        for (j, h) in heights.iter().cloned().enumerate() {
+            if h <= lowest_height {
+                if h == lowest_height {
+                    lowest_height_dups += 1;
+                } else {
+                    lowest_height = h;
+                    lowest_j = j;
+                    lowest_height_dups = 0;
+                }
+            }
+        }
+
+        if lowest_height_dups > 0 {
+            return None;
+        }
+
+        let j = lowest_j;
+
+        let mut alt_board = self.clone();
+        let mut clears = 0;
+
+        for k in 0..4 {
+            let i = 19 - lowest_height - k;
+            debug_assert!(alt_board.get(i, j) == false);
+            alt_board.flip(i, j);
+
+            if alt_board.rows[i].full() {
+                clears += 1;
+            } else {
+                break; // consecutive clears only
+            }
+        }
+
+        let depth = clears;
+
+        Some((depth, j))
+    }
 }
 
 impl Debug for Board {
@@ -447,5 +495,41 @@ impl BoardCol {
         }
 
         res
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tetris_readiness() {
+        let board = Board::from_compact(
+            &[
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "0000000000",
+                "1111111010",
+                "1111111011",
+                "1111111011",
+                "0000001110",
+            ] //        ^ depth: 2, column: 7
+            .join(""),
+        );
+
+        assert_eq!(board.tetris_readiness(), Some((2, 7)));
     }
 }

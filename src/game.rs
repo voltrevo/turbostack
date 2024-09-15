@@ -113,6 +113,7 @@ impl Debug for Game {
         writeln!(f, "  str  : {}", self.board.to_compact_string())?;
         writeln!(f, "  holes: {}", self.board.holes().len())?;
         writeln!(f, "  overh: {}", self.board.overhangs().len())?;
+        writeln!(f, "  ready: {:?}", self.board.tetris_readiness())?;
 
         writeln!(f, "]")?;
 

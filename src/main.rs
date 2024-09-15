@@ -7,7 +7,8 @@ mod piece;
 mod piece_type_generator;
 
 fn main() {
-    run_one_game();
+    // run_one_game();
+    show_n_steps(20);
 }
 
 #[allow(dead_code)]
