@@ -92,10 +92,16 @@ impl Debug for Game {
 
         writeln!(f, "  score: {}", self.board.score)?;
 
+        let effective_lines_cleared = if self.board.finished {
+            std::cmp::max(self.board.lines_cleared, self.board.lines_cleared_max)
+        } else {
+            self.board.lines_cleared
+        };
+
         writeln!(
             f,
             "  eff  : {}",
-            ((self.board.score as f32) / (self.board.lines_cleared as f32)).round() as i64
+            ((self.board.score as f32) / (effective_lines_cleared as f32)).round() as i64
         )?;
 
         writeln!(

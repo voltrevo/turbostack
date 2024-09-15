@@ -158,6 +158,14 @@ impl Board {
 
     pub fn piece_reachable_simple(&self, piece: &Piece) -> bool {
         for (i, j) in piece.cell_positions() {
+            if i < 0 {
+                continue;
+            }
+
+            if i > 20 {
+                return false;
+            }
+
             let cell_height = 20 - i as usize;
             let col_height = self.cols[j as usize].height();
 
@@ -171,6 +179,10 @@ impl Board {
 
     pub fn insert_piece_unchecked(&mut self, piece: &Piece) {
         for (i, j) in piece.cell_positions() {
+            if i < 0 {
+                continue;
+            }
+
             self.flip(i as usize, j as usize);
         }
     }

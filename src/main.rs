@@ -7,11 +7,27 @@ mod piece;
 mod piece_type_generator;
 
 fn main() {
+    run_one_game();
+}
+
+#[allow(dead_code)]
+fn run_one_game() {
+    let mut game = Game::new();
+
+    while !game.board.finished {
+        game.step();
+    }
+
+    dbg!(&game);
+}
+
+#[allow(dead_code)]
+fn show_n_steps(n: usize) {
     let mut game = Game::new();
 
     println!("{:?}", &game);
 
-    for i in 0..10 {
+    for i in 0..n {
         game.step();
         println!("step {}: {:?}", i, &game);
     }
