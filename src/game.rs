@@ -1,7 +1,23 @@
+use lazy_static::lazy_static;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::fmt::Debug;
 
-use crate::{board::Board, board_eval::BoardEval, piece_type_generator::PieceTypeGenerator};
+use crate::{
+    board::{Board, SurfacePattern},
+    board_eval::BoardEval,
+    piece_type_generator::PieceTypeGenerator,
+};
+
+lazy_static! {
+    static ref PATTERN: SurfacePattern = {
+        SurfacePattern::new(&[
+            "1 1", //
+            "1 1",
+            "1 1",
+            " T ",
+        ])
+    };
+}
 
 pub struct Game {
     pub board: Board,
@@ -114,6 +130,7 @@ impl Debug for Game {
         writeln!(f, "  holes: {}", self.board.holes().len())?;
         writeln!(f, "  overh: {}", self.board.overhangs().len())?;
         writeln!(f, "  ready: {:?}", self.board.tetris_readiness())?;
+        writeln!(f, "  pat  : {}", self.board.count_surface_pattern(&PATTERN))?;
 
         writeln!(f, "]")?;
 

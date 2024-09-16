@@ -347,7 +347,7 @@ impl Board {
 
             // align pattern so that first_top is a top
             // pat_i + pattern.first_top.1 == ref_top
-            let pat_i = (ref_top as isize) - pattern.first_top.1;
+            let pat_i = (ref_top as isize) - pattern.first_top.0;
 
             for (j, top) in pattern.tops.iter().enumerate() {
                 let top = match top {
@@ -360,9 +360,15 @@ impl Board {
                 {
                     continue 'b;
                 }
-
-                todo!()
             }
+
+            for (i, j, cell_value) in pattern.cells.iter().cloned() {
+                if self.get_signed(pat_i + i, pat_j + j) != cell_value {
+                    continue 'b;
+                }
+            }
+
+            count += 1;
         }
 
         count
@@ -423,7 +429,7 @@ impl SurfacePattern {
                     'T' => {
                         assert_eq!(tops[j], None, "duplicate top constraint");
 
-                        if let Some((first_top_i, first_top_j)) = first_top {
+                        if let Some((_, first_top_j)) = first_top {
                             assert_ne!(j as isize, first_top_j, "duplicate top constraint");
                             tops[j] = Some(i as isize);
                         } else {
