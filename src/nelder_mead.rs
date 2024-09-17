@@ -9,14 +9,14 @@ pub struct NelderMead<State: Default> {
 }
 
 impl<State: Default> NelderMead<State> {
-    pub fn new(simplex: Vec<Vec<f32>>) -> Self {
+    pub fn new(simplex: Vec<Vec<f32>>, sigma: f32) -> Self {
         Self {
             simplex,
             state: Default::default(),
             alpha: 1.0, // reflection coefficient
             gamma: 2.0, // expansion coefficient
             rho: 0.5,   // contraction coefficient
-            sigma: 0.5, // shrinkage coefficient
+            sigma,      // shrinkage coefficient
         }
     }
 
@@ -36,9 +36,7 @@ impl<State: Default> NelderMead<State> {
 
             // Sort the simplex vertices based on their function values
             scored_simplex.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-
             let median = scored_simplex[n / 2].1;
-            println!("{}: {}", iter, median);
 
             self.simplex = scored_simplex.iter().map(|(p, _)| (*p).clone()).collect();
 
@@ -87,6 +85,8 @@ impl<State: Default> NelderMead<State> {
                         .sqrt()
                 })
                 .fold(0.0 / 0.0, f32::max); // max distance in the simplex
+
+            println!("{}: {} ({})", iter, median, size);
 
             if size < tol || iter >= max_iters {
                 break;
@@ -156,7 +156,7 @@ mod tests {
             vec![0.0, 0.0, 1.2],
         ];
 
-        let mut nelder_mead = NelderMead::<()>::new(initial_simplex);
+        let mut nelder_mead = NelderMead::<()>::new(initial_simplex, 0.5);
 
         let result = nelder_mead.optimize(
             |x, _, _| {
@@ -191,7 +191,7 @@ mod tests {
             vec![1.0, 1.0, 1.5],
         ];
 
-        let mut nelder_mead = NelderMead::<()>::new(initial_simplex);
+        let mut nelder_mead = NelderMead::<()>::new(initial_simplex, 0.5);
 
         let result = nelder_mead.optimize(
             |x, _, _| x.iter().map(|&xi| xi.powi(2)).sum::<f32>(), // Sum of squares function
@@ -214,7 +214,7 @@ mod tests {
         // Minimum is at [1.0, 3.0]
         let initial_simplex = vec![vec![0.0, 0.0], vec![1.0, 0.0], vec![0.0, 1.0]];
 
-        let mut nelder_mead = NelderMead::<()>::new(initial_simplex);
+        let mut nelder_mead = NelderMead::<()>::new(initial_simplex, 0.5);
 
         let result = nelder_mead.optimize(
             |x, _, _| (x[0] + 2.0 * x[1] - 7.0).powi(2) + (2.0 * x[0] + x[1] - 5.0).powi(2),

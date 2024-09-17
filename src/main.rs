@@ -53,7 +53,7 @@ fn first_explore() {
         .map(|i| BoardEval::rand(i as u64).0)
         .collect::<Vec<_>>();
 
-    let mut nm = NelderMead::<Cache>::new(init_simplex);
+    let mut nm = NelderMead::<Cache>::new(init_simplex, 1.0);
 
     let res = nm.optimize(eval_point, 1e-4, 500);
 
@@ -86,7 +86,7 @@ fn eval_point(point: &Vec<f32>, cache: &mut Cache, iter: usize) -> f32 {
 
     let iters = 20;
     let mut score_sum = 0;
-    let start = 1 + iter / 5;
+    let start = 1 + iter / 3;
 
     cache.remove(&(start - 1));
 
