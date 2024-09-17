@@ -37,7 +37,7 @@ fn main() {
         -1.3546457,  // height
     ];
 
-    println!("eval {}", eval_point(&res));
+    println!("eval {}", eval_point(&res, &mut (), 0));
 
     let mut game = Game::new(2, BoardEval(res.clone()));
 
@@ -60,11 +60,11 @@ fn first_explore() {
         .map(|i| BoardEval::rand(i as u64).0)
         .collect::<Vec<_>>();
 
-    let mut nm = NelderMead::new(init_simplex);
+    let mut nm = NelderMead::<()>::new(init_simplex);
 
     let res = nm.optimize(eval_point, 1e-4, 50);
 
-    let res_score = eval_point(&res);
+    let res_score = eval_point(&res, &mut (), 0);
 
     println!("{:?}", &res);
     println!("{}", res_score);
@@ -84,7 +84,7 @@ fn first_explore() {
     println!("{:?}", &res);
 }
 
-fn eval_point(point: &Vec<f32>) -> f32 {
+fn eval_point(point: &Vec<f32>, _state: &mut (), _iter: usize) -> f32 {
     let board_eval = BoardEval(point.clone());
 
     let iters = 20;

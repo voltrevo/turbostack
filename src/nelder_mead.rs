@@ -1,16 +1,18 @@
 #[derive(Clone, Debug)]
-pub struct NelderMead {
+pub struct NelderMead<State: Default> {
     simplex: Vec<Vec<f32>>,
+    state: State,
     alpha: f32,
     gamma: f32,
     rho: f32,
     sigma: f32,
 }
 
-impl NelderMead {
-    pub fn new(simplex: Vec<Vec<f32>>) -> NelderMead {
-        NelderMead {
+impl<State: Default> NelderMead<State> {
+    pub fn new(simplex: Vec<Vec<f32>>) -> Self {
+        Self {
             simplex,
+            state: Default::default(),
             alpha: 1.0, // reflection coefficient
             gamma: 2.0, // expansion coefficient
             rho: 0.5,   // contraction coefficient
@@ -20,7 +22,7 @@ impl NelderMead {
 
     pub fn optimize<F>(&mut self, func: F, tol: f32, max_iters: usize) -> Vec<f32>
     where
-        F: Fn(&Vec<f32>) -> f32,
+        F: Fn(&Vec<f32>, &mut State, usize) -> f32,
     {
         let n = self.simplex[0].len();
         let mut iter = 0;
@@ -31,7 +33,7 @@ impl NelderMead {
             let mut scored_simplex = self
                 .simplex
                 .iter()
-                .map(|p| (p, func(p)))
+                .map(|p| (p, func(p, &mut self.state, iter)))
                 .collect::<Vec<_>>();
 
             // Sort the simplex vertices based on their function values
@@ -50,22 +52,22 @@ impl NelderMead {
 
             // Perform reflection
             let reflection = self.reflect(&centroid, &worst);
-            let f_reflection = func(&reflection);
+            let f_reflection = func(&reflection, &mut self.state, iter);
 
-            if f_reflection < func(&best) {
+            if f_reflection < func(&best, &mut self.state, iter) {
                 // Perform expansion
                 let expansion = self.expand(&centroid, &worst);
-                if func(&expansion) < f_reflection {
+                if func(&expansion, &mut self.state, iter) < f_reflection {
                     self.simplex[n] = expansion;
                 } else {
                     self.simplex[n] = reflection;
                 }
-            } else if f_reflection < func(&second_worst) {
+            } else if f_reflection < func(&second_worst, &mut self.state, iter) {
                 self.simplex[n] = reflection;
             } else {
                 // Perform contraction
                 let contraction = self.contract(&centroid, &worst);
-                if func(&contraction) < func(&worst) {
+                if func(&contraction, &mut self.state, iter) < func(&worst, &mut self.state, iter) {
                     self.simplex[n] = contraction;
                 } else {
                     // Shrink the simplex if contraction fails
@@ -156,10 +158,10 @@ mod tests {
             vec![0.0, 0.0, 1.2],
         ];
 
-        let mut nelder_mead = NelderMead::new(initial_simplex);
+        let mut nelder_mead = NelderMead::<()>::new(initial_simplex);
 
         let result = nelder_mead.optimize(
-            |x| {
+            |x, _, _| {
                 let a = 1.0;
                 let b = 100.0;
                 (a - x[0]).powi(2)
@@ -191,12 +193,12 @@ mod tests {
             vec![1.0, 1.0, 1.5],
         ];
 
-        let mut nelder_mead = NelderMead::new(initial_simplex);
+        let mut nelder_mead = NelderMead::<()>::new(initial_simplex);
 
         let result = nelder_mead.optimize(
-            |x| x.iter().map(|&xi| xi.powi(2)).sum::<f32>(), // Sum of squares function
-            1e-6,                                            // Tolerance
-            1000,                                            // Max iterations
+            |x, _, _| x.iter().map(|&xi| xi.powi(2)).sum::<f32>(), // Sum of squares function
+            1e-6,                                                  // Tolerance
+            1000,                                                  // Max iterations
         );
 
         let expected = vec![0.0, 0.0, 0.0];
@@ -214,10 +216,10 @@ mod tests {
         // Minimum is at [1.0, 3.0]
         let initial_simplex = vec![vec![0.0, 0.0], vec![1.0, 0.0], vec![0.0, 1.0]];
 
-        let mut nelder_mead = NelderMead::new(initial_simplex);
+        let mut nelder_mead = NelderMead::<()>::new(initial_simplex);
 
         let result = nelder_mead.optimize(
-            |x| (x[0] + 2.0 * x[1] - 7.0).powi(2) + (2.0 * x[0] + x[1] - 5.0).powi(2),
+            |x, _, _| (x[0] + 2.0 * x[1] - 7.0).powi(2) + (2.0 * x[0] + x[1] - 5.0).powi(2),
             1e-6, // Tolerance
             1000, // Max iterations
         );
