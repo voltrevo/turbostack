@@ -124,9 +124,24 @@ impl Board {
         return false;
     }
 
+    pub fn min_i(j: isize) -> isize {
+        match j {
+            0 => 4,
+            1 => 6,
+            2 => 6,
+            _ => 7,
+        }
+    }
+
     pub fn can_fit_piece(&self, piece: &Piece) -> bool {
         if self.piece_overlaps(piece) {
             return false;
+        }
+
+        for (i, j) in piece.cell_positions() {
+            if i < Self::min_i(j) {
+                return false;
+            }
         }
 
         // the simple test: is every cell above the height of the column

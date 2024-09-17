@@ -245,6 +245,10 @@ impl BoardEval {
         FEATURE_LEN.clone() + 1
     }
 
+    pub fn eval(&self, board: &Board) -> f32 {
+        self.eval_sm(board)
+    }
+
     pub fn rand(seed: u64) -> Self {
         let mut data = Vec::<f32>::new();
 
@@ -269,7 +273,8 @@ impl BoardEval {
         &self.0[1..]
     }
 
-    pub fn eval(&self, board: &Board) -> f32 {
+    #[allow(dead_code)]
+    pub fn eval_sm(&self, board: &Board) -> f32 {
         let mut res = board.score as f32;
 
         let line_value = self.line_value();
@@ -360,6 +365,10 @@ impl BoardEval {
                 .map(|p| pat_board.count_surface_pattern(p))
                 .sum::<usize>() as f32,
         );
+
+        let height = (board.cols.map(|c| c.height()).iter().sum::<usize>() as f32) / 10.0;
+
+        res.push(height);
 
         res
     }
