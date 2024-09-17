@@ -55,7 +55,7 @@ fn first_explore() {
 
     let mut nm = NelderMead::<Cache>::new(init_simplex);
 
-    let res = nm.optimize(eval_point, 1e-4, 50);
+    let res = nm.optimize(eval_point, 1e-4, 500);
 
     let res_score = eval_point(&res, &mut Cache::default(), 0);
 
@@ -121,8 +121,6 @@ fn eval_point(point: &Vec<f32>, cache: &mut Cache, iter: usize) -> f32 {
     }
 
     let res = -(score_sum as f32) / (iters as f32);
-
-    dbg!(res);
 
     res
 }

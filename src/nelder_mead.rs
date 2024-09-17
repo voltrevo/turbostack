@@ -28,8 +28,6 @@ impl<State: Default> NelderMead<State> {
         let mut iter = 0;
 
         loop {
-            println!("here {} {}", self.simplex.len(), self.simplex[0].len());
-
             let mut scored_simplex = self
                 .simplex
                 .iter()
@@ -39,9 +37,10 @@ impl<State: Default> NelderMead<State> {
             // Sort the simplex vertices based on their function values
             scored_simplex.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
-            self.simplex = scored_simplex.iter().map(|(p, _)| (*p).clone()).collect();
+            let median = scored_simplex[n / 2].1;
+            println!("{}: {}", iter, median);
 
-            println!("here2");
+            self.simplex = scored_simplex.iter().map(|(p, _)| (*p).clone()).collect();
 
             let best = self.simplex[0].clone();
             let worst = self.simplex[n].clone();
@@ -94,7 +93,6 @@ impl<State: Default> NelderMead<State> {
             }
 
             iter += 1;
-            dbg!(iter);
         }
 
         self.simplex[0].clone()
