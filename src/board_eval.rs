@@ -93,12 +93,10 @@ lazy_static! {
             vec![ // well depth 2 on left side
                 "T 1",
                 "1 1",
-                "1 1",
                 " T ",
             ],
             vec![ // well depth 2 on right side
                 "1 T",
-                "1 1",
                 "1 1",
                 " T ",
             ],
@@ -145,9 +143,100 @@ lazy_static! {
             ],
         ].iter().map(|p| SurfacePattern::new(p)).collect()
     };
-}
 
-lazy_static! {
+    static ref GOOD_PATTERNS: Vec<SurfacePattern> = {
+        [
+            vec![ // flat
+                "TT",
+            ],
+            vec![ // double flat
+                "TTT",
+            ],
+            vec![ // flat up
+                "  T",
+                "TT ",
+            ],
+            vec![ // down flat
+                "T  ",
+                " TT",
+            ],
+        ].iter().map(|p| SurfacePattern::new(p)).collect()
+    };
+
+    static ref BAD_PATTERNS: Vec<SurfacePattern> = {
+        [
+            vec![ // double step up
+                " T",
+                " 1",
+                "T ",
+            ],
+            vec![ // double step down
+                "T ",
+                "1 ",
+                " T",
+            ],
+            vec![ // step up >= 3
+                " 1",
+                " 1",
+                " 1",
+                "T ",
+            ],
+            vec![ // step down >= 3
+                "1 ",
+                "1 ",
+                "1 ",
+                " T",
+            ],
+            vec![ // well depth 2
+                "T T",
+                "1 1",
+                " T ",
+            ],
+            vec![ // well depth 2 on left side
+                "T 1",
+                "1 1",
+                " T ",
+            ],
+            vec![ // well depth 2 on right side
+                "1 T",
+                "1 1",
+                " T ",
+            ],
+            vec![ // hook left
+                "  1",
+                "T 1",
+                " T ",
+            ],
+            vec![ // hook right
+                "1  ",
+                "1 T",
+                " T ",
+            ],
+        ].iter().map(|p| SurfacePattern::new(p)).collect()
+    };
+
+    static ref VERY_BAD_PATTERNS: Vec<SurfacePattern> = {
+        [
+            vec![ // well depth >= 3
+                "1 1",
+                "1 1",
+                "1 1",
+                " T ",
+            ],
+            vec![ // shallow w
+                "1   1",
+                "1 T 1",
+                " T T ",
+            ],
+            vec![ // deep w
+                "1   1",
+                "1 T 1",
+                "1 1 1",
+                " T T ",
+            ],
+        ].iter().map(|p| SurfacePattern::new(p)).collect()
+    };
+
     pub static ref FEATURE_LEN: usize = BoardEval::features(&Board::new()).len();
 }
 
@@ -219,6 +308,64 @@ impl BoardEval {
     }
 
     pub fn features(board: &Board) -> Vec<f32> {
+        let mut res = Vec::<f32>::new();
+
+        res.push(1.0); // avoids needing explicit constant term elsewhere
+
+        // res.push(board.score as f32); // hardcoded unscaled inclusion
+
+        // lines is a special multiplier
+        // (features dot feature_weights) is also to be multiplied by whatever a line is worth
+        // this way each feature can be understood to be worth a certain (possibly negative) number
+        // of lines
+        // res.push(board.lines_remaining());
+
+        res.push(board.overhangs().len() as f32);
+        res.push(board.holes().len() as f32);
+
+        let readiness = board.tetris_readiness();
+
+        let readiness_depth = readiness.map(|(depth, _j)| depth).unwrap_or(0);
+        let readiness_j = readiness.map(|(_depth, j)| j);
+
+        res.push(readiness_depth as f32);
+        res.push((readiness_depth == 4) as usize as f32);
+
+        let mut pat_board = board.clone();
+
+        if let Some(j) = readiness_j {
+            pat_board.set(0, j, true);
+        }
+
+        res.push(
+            GOOD_PATTERNS
+                .clone()
+                .iter()
+                .map(|p| pat_board.count_surface_pattern(p))
+                .sum::<usize>() as f32,
+        );
+
+        res.push(
+            BAD_PATTERNS
+                .clone()
+                .iter()
+                .map(|p| pat_board.count_surface_pattern(p))
+                .sum::<usize>() as f32,
+        );
+
+        res.push(
+            VERY_BAD_PATTERNS
+                .clone()
+                .iter()
+                .map(|p| pat_board.count_surface_pattern(p))
+                .sum::<usize>() as f32,
+        );
+
+        res
+    }
+
+    #[allow(dead_code)]
+    pub fn features_lg(board: &Board) -> Vec<f32> {
         let mut res = Vec::<f32>::new();
 
         res.push(1.0); // avoids needing explicit constant term elsewhere

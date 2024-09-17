@@ -17,7 +17,7 @@ fn main() {
 
     let mut nm = NelderMead::new(init_simplex);
 
-    let res = nm.optimize(eval_point, 1e-4, 10);
+    let res = nm.optimize(eval_point, 1e-4, 50);
 
     let res_score = eval_point(&res);
 
