@@ -126,11 +126,20 @@ impl Debug for Game {
             (4.0 * self.board.tetrises as f32) / (self.board.lines_cleared as f32)
         )?;
 
+        let readiness = self.board.tetris_readiness();
+
         writeln!(f, "  str  : {}", self.board.to_compact_string())?;
         writeln!(f, "  holes: {}", self.board.holes().len())?;
         writeln!(f, "  overh: {}", self.board.overhangs().len())?;
-        writeln!(f, "  ready: {:?}", self.board.tetris_readiness())?;
+        writeln!(f, "  ready: {:?}", readiness)?;
         writeln!(f, "  pat  : {}", self.board.count_surface_pattern(&PATTERN))?;
+
+        if let Some((_, well_j)) = readiness {
+            let (wh, wd, ws) = self.board.well_height_depth_slope(well_j);
+            writeln!(f, "  wh   : {}", wh)?;
+            writeln!(f, "  wd   : {}", wd)?;
+            writeln!(f, "  ws   : {}", ws)?;
+        }
 
         writeln!(f, "]")?;
 

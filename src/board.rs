@@ -1,6 +1,9 @@
 use std::{collections::BTreeSet, fmt::Debug};
 
-use crate::piece::{Piece, PieceType, RotateDir};
+use crate::{
+    fit_line::fit_line,
+    piece::{Piece, PieceType, RotateDir},
+};
 
 #[derive(Clone)]
 pub struct Board {
@@ -372,6 +375,45 @@ impl Board {
         }
 
         count
+    }
+
+    pub fn well_height_depth_slope(&self, well_j: usize) -> (f32, f32, f32) {
+        let heights = self.cols.map(|c| c.height() as f32);
+
+        let mut norm_heights = Vec::<(f32, f32)>::new();
+
+        for j in 0..well_j {
+            norm_heights.push((j as f32, heights[j]));
+        }
+
+        let left_height = match well_j {
+            0 => 0.0,
+            _ => heights[well_j - 1],
+        };
+
+        let right_height = match well_j {
+            9 => 0.0,
+            _ => heights[well_j + 1],
+        };
+
+        for j in (well_j + 2)..10 {
+            norm_heights.push(((j - 1) as f32, left_height - (heights[j] - right_height)));
+        }
+
+        let slope = fit_line(&norm_heights).1;
+
+        let well_height = heights[well_j];
+
+        let mut well_depth = 0.0;
+
+        for h in heights {
+            // No need to exclude the well itself since it adds zero
+            // We divide correctly by 9 rather than 10 though, so it's
+            // the same as the average excluding the well itself
+            well_depth += (h - well_height) / 9.0;
+        }
+
+        (well_height, well_depth, slope)
     }
 }
 

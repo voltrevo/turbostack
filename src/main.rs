@@ -2,6 +2,7 @@ use game::Game;
 
 mod board;
 mod board_eval;
+mod fit_line;
 mod game;
 mod piece;
 mod piece_type_generator;
