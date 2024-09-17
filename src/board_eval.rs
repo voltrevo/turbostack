@@ -292,7 +292,7 @@ impl BoardEval {
             feat_lines += feat[i] * feat_line_weights[i];
         }
 
-        res += feat_lines * line_value;
+        res += feat_lines * 100.0;
 
         res
     }

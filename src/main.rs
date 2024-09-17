@@ -14,33 +14,44 @@ mod piece_type_generator;
 fn main() {
     // first_explore();
 
-    // let res = vec![
-    //     -3.8387742,  // line value
-    //     -0.6106285,  // x1
-    //     3.6185656,   // overhangs
-    //     0.27830136,  // holes
-    //     -2.0106773,  // readiness depth
-    //     -0.14960343, // tetris ready
-    //     -0.56063694, // good patterns
-    //     0.78189015,  // bad patterns
-    //     0.047684643, // very bad patterns
-    //     2.4581518,   // height
-    // ];
-
     let res = vec![
-        -1.7207618,   // line value
-        -0.37228197,  // x1
-        2.6049056,    // overhangs
-        -0.087475166, // holes
-        -0.7967446,   // readiness depth
-        0.5389716,    // tetris ready
-        -0.097938806, // good patterns
-        0.8472595,    // bad patterns
-        -0.34060836,  // very bad patterns
-        0.8371644,    // height
+        //     -1.3629023,    // line value
+        //     1.0010495,     // x1
+        //     2.5488162,     // overhangs
+        //     0.7336444,     // holes
+        //     -2.3325214,    // readiness depth
+        //     1.1052921,     // tetris ready
+        //     -0.0116937645, // good patterns
+        //     0.26175177,    // bad patterns
+        //     0.8194094,     // very bad patterns
+        //     2.1194324,     // height
+        0.11743796,  // line value
+        -1.2541437,  // x1
+        -1.3426046,  // overhangs
+        0.06455171,  // holes
+        1.0662355,   // readiness depth
+        0.11092834,  // tetris ready
+        0.013263656, // good patterns
+        -0.27358586, // bad patterns
+        -0.35926318, // very bad patterns
+        -1.3546457,  // height
     ];
 
     println!("eval {}", eval_point(&res));
+
+    let mut game = Game::new(2, BoardEval(res.clone()));
+
+    println!("{:?}", &game);
+
+    let mut i = 0;
+
+    while !game.board.finished {
+        game.step();
+        i += 1;
+        println!("step {}: {:?}", i, &game);
+    }
+
+    println!("{:?}", &res);
 }
 
 #[allow(dead_code)]
