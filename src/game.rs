@@ -28,13 +28,13 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new() -> Self {
+    pub fn new(seed: u64, board_eval: BoardEval) -> Self {
         Self {
             board: Board::new(),
             last_board: Board::new(),
-            board_eval: BoardEval::rand(1),
+            board_eval,
             piece_type_generator: PieceTypeGenerator::new(),
-            rng: StdRng::seed_from_u64(0),
+            rng: StdRng::seed_from_u64(seed),
         }
     }
 

@@ -3,7 +3,8 @@ use lazy_static::lazy_static;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use rand_distr::Normal;
 
-pub struct BoardEval(Vec<f32>);
+#[derive(Clone)]
+pub struct BoardEval(pub Vec<f32>);
 
 lazy_static! {
     static ref PATTERNS: Vec<SurfacePattern> = {
@@ -147,10 +148,14 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref FEATURE_LEN: usize = BoardEval::features(&Board::new()).len();
+    pub static ref FEATURE_LEN: usize = BoardEval::features(&Board::new()).len();
 }
 
 impl BoardEval {
+    pub fn dim() -> usize {
+        FEATURE_LEN.clone() + 1
+    }
+
     pub fn rand(seed: u64) -> Self {
         let mut data = Vec::<f32>::new();
 
