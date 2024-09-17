@@ -326,6 +326,10 @@ impl Board {
         let mut clears = 0;
 
         for k in 0..4 {
+            if lowest_height + k > 19 {
+                break;
+            }
+
             let i = 19 - lowest_height - k;
             debug_assert!(alt_board.get(i, j) == false);
             alt_board.flip(i, j);
@@ -415,8 +419,16 @@ impl Board {
 
         (well_height, well_depth, slope)
     }
+
+    pub fn lines_remaining(&self) -> f32 {
+        f32::max(
+            0.0,
+            (self.lines_cleared_max as f32) - (self.lines_cleared as f32),
+        )
+    }
 }
 
+#[derive(Clone)]
 pub struct SurfacePattern {
     first_top: (isize, isize),
     tops: Vec<Option<isize>>,

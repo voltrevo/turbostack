@@ -32,7 +32,7 @@ impl Game {
         Self {
             board: Board::new(),
             last_board: Board::new(),
-            board_eval: BoardEval::new(),
+            board_eval: BoardEval::rand(1),
             piece_type_generator: PieceTypeGenerator::new(),
             rng: StdRng::seed_from_u64(0),
         }
