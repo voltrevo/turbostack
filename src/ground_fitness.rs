@@ -11,7 +11,7 @@ pub fn ground_fitness(
     let board_eval = BoardEval(model.clone());
 
     for s in first_seed..(first_seed + samples) {
-        let mut game = Game::new(s as u64, max_lines, board_eval.clone());
+        let mut game = Game::new(s as u64, max_lines, board_eval.clone(), 1);
 
         while !game.board.finished {
             game.step();

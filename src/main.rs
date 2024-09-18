@@ -24,7 +24,7 @@ fn main() {
 
 #[allow(dead_code)]
 fn run_one_game(model: Vec<f32>) {
-    let mut game = Game::new(0, 130, BoardEval(model));
+    let mut game = Game::new(0, 130, BoardEval(model), 1);
 
     while !game.board.finished {
         game.step();
@@ -35,7 +35,7 @@ fn run_one_game(model: Vec<f32>) {
 
 #[allow(dead_code)]
 fn show_n_steps(model: Vec<f32>, n: usize) {
-    let mut game = Game::new(0, 130, BoardEval(model));
+    let mut game = Game::new(0, 130, BoardEval(model), 1);
 
     println!("{:?}", &game);
 

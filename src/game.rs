@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use crate::{
     board::{Board, SurfacePattern},
     board_eval::BoardEval,
+    piece::PieceType,
     piece_type_generator::PieceTypeGenerator,
 };
 
@@ -25,16 +26,23 @@ pub struct Game {
     pub board_eval: BoardEval,
     pub piece_type_generator: PieceTypeGenerator,
     pub rng: StdRng,
+    pub search_depth: usize,
 }
 
 impl Game {
-    pub fn new(seed: u64, lines_cleared_max: usize, board_eval: BoardEval) -> Self {
+    pub fn new(
+        seed: u64,
+        lines_cleared_max: usize,
+        board_eval: BoardEval,
+        search_depth: usize,
+    ) -> Self {
         Self {
             board: Board::new(lines_cleared_max),
             last_board: Board::new(lines_cleared_max),
             board_eval,
             piece_type_generator: PieceTypeGenerator::new(),
             rng: StdRng::seed_from_u64(seed),
+            search_depth,
         }
     }
 
@@ -47,13 +55,33 @@ impl Game {
 
         let piece_type = self.piece_type_generator.gen(self.rng.gen());
 
-        let choices = self.board.find_choices(piece_type);
+        let next_board = self.insert_piece_type(&self.board, piece_type, self.search_depth);
+
+        let next_board = match next_board {
+            Some(next_board) => next_board,
+            None => {
+                self.board.finished = true;
+                return;
+            }
+        };
+
+        self.board = next_board.0;
+    }
+
+    pub fn insert_piece_type(
+        &self,
+        board: &Board,
+        piece_type: PieceType,
+        depth: usize,
+    ) -> Option<(Board, f32)> {
+        assert!(depth > 0);
+        let choices = board.find_choices(piece_type);
 
         let mut best_choice = None;
         let mut best_eval = 0.0;
 
         for choice in choices {
-            let eval = self.board_eval.eval(&choice);
+            let eval = self.eval(&choice, depth - 1);
 
             if best_choice.is_none() || eval > best_eval {
                 best_eval = eval;
@@ -61,15 +89,29 @@ impl Game {
             }
         }
 
-        let best_choice = match best_choice {
-            Some(best_choice) => best_choice,
-            None => {
-                self.board.finished = true;
-                return;
-            }
-        };
+        best_choice.map(|b| (b, best_eval))
+    }
 
-        self.board = best_choice;
+    pub fn eval(&self, board: &Board, depth: usize) -> f32 {
+        if depth == 0 {
+            return self.board_eval.eval(&board);
+        }
+
+        let mut sum = 0.0;
+
+        for pt in PieceType::list() {
+            let alt_board = self.insert_piece_type(&board, *pt, depth);
+
+            match alt_board {
+                Some((_, eval)) => {
+                    sum += eval;
+                }
+                // TODO: it's unclear what the penalty should be if one of the placements fail
+                None => {}
+            }
+        }
+
+        sum / 7.0
     }
 }
 
