@@ -26,6 +26,8 @@ impl<State: Default> NelderMead<State> {
     {
         let n = self.simplex[0].len();
         let mut iter = 0;
+        let mut avg_progress = 0.0;
+        let mut last_median = 0.0;
 
         loop {
             let mut scored_simplex = self
@@ -37,6 +39,9 @@ impl<State: Default> NelderMead<State> {
             // Sort the simplex vertices based on their function values
             scored_simplex.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
             let median = scored_simplex[n / 2].1;
+            let dmedian = median - last_median;
+            last_median = median;
+            avg_progress = 0.995 * avg_progress + 0.005 * dmedian;
 
             self.simplex = scored_simplex.iter().map(|(p, _)| (*p).clone()).collect();
 
@@ -86,13 +91,14 @@ impl<State: Default> NelderMead<State> {
                 })
                 .fold(0.0 / 0.0, f32::max); // max distance in the simplex
 
-            let line_val = 100.0 * f32::abs(self.simplex[self.simplex.len() / 2][0]);
+            let line_val = self.simplex[self.simplex.len() / 2][0];
 
             println!(
-                "{}: {}, line_val: {} ({})",
+                "{}: {}, line_val: {}, avg_progress: {}, ({})",
                 iter,
                 -19.0 * median,
                 line_val,
+                -19.0 * avg_progress,
                 size
             );
 

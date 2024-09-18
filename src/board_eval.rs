@@ -237,12 +237,12 @@ lazy_static! {
         ].iter().map(|p| SurfacePattern::new(p)).collect()
     };
 
-    pub static ref FEATURE_LEN: usize = BoardEval::features(&Board::new(130)).len();
+    pub static ref FEATURE_LEN: usize = BoardEval::features_sm(&Board::new(130)).len();
 }
 
 impl BoardEval {
     pub fn dim() -> usize {
-        FEATURE_LEN.clone() + 1
+        FEATURE_LEN.clone()
     }
 
     pub fn eval(&self, board: &Board) -> f32 {
@@ -255,7 +255,7 @@ impl BoardEval {
         let mut rng = StdRng::seed_from_u64(seed);
         let std_norm_dist = Normal::new(0.0, 1.0).unwrap();
 
-        for _ in 0..(FEATURE_LEN.clone() + 1) {
+        for _ in 0..FEATURE_LEN.clone() {
             // TODO: why is clone needed above
             data.push(rng.sample(std_norm_dist))
         }
@@ -263,34 +263,17 @@ impl BoardEval {
         Self(data)
     }
 
-    pub fn line_value(&self) -> f32 {
-        // A fixed multiplier of 100 seems to bring it into a 'sensible' range for optimization
-        // algorithms. A good evaluator should value each line at 200+.
-        100.0 * f32::abs(self.0[0])
-    }
-
-    pub fn feature_line_weights(&self) -> &[f32] {
-        &self.0[1..]
-    }
-
     #[allow(dead_code)]
     pub fn eval_sm(&self, board: &Board) -> f32 {
-        let mut res = board.score as f32;
+        let mut res = 0.0;
 
-        res += self.line_value() * board.lines_remaining();
+        let feat = Self::features_sm(board);
 
-        let feat = Self::features(board);
-        let feat_line_weights = self.feature_line_weights();
-
-        assert_eq!(feat.len(), feat_line_weights.len());
-
-        let mut feat_lines = 0.0;
+        assert_eq!(feat.len(), self.0.len());
 
         for i in 0..feat.len() {
-            feat_lines += feat[i] * feat_line_weights[i];
+            res += feat[i] * self.0[i];
         }
-
-        res += feat_lines * 100.0;
 
         res
     }
@@ -310,17 +293,10 @@ impl BoardEval {
         -(hole_count * 10000.0 + overhang_count * 100.0 + max_height)
     }
 
-    pub fn features(board: &Board) -> Vec<f32> {
+    pub fn features_sm(board: &Board) -> Vec<f32> {
         let mut res = Vec::<f32>::new();
 
-        // res.push(1.0); // avoids needing explicit constant term elsewhere
-
-        // res.push(board.score as f32); // hardcoded unscaled inclusion
-
-        // lines is a special multiplier
-        // (features dot feature_weights) is also to be multiplied by whatever a line is worth
-        // this way each feature can be understood to be worth a certain (possibly negative) number
-        // of lines
+        res.push(board.score as f32);
         res.push(board.lines_remaining());
 
         res.push(board.overhangs().len() as f32);
@@ -332,7 +308,7 @@ impl BoardEval {
         let readiness_j = readiness.map(|(_depth, j)| j);
 
         res.push(readiness_depth as f32);
-        res.push((readiness_depth == 4) as usize as f32);
+        res.push((readiness_depth >= 4) as usize as f32);
 
         let mut pat_board = board.clone();
 

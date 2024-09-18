@@ -49,7 +49,7 @@ fn main() {
 
 #[allow(dead_code)]
 fn first_explore() {
-    let init_simplex = (0..(BoardEval::dim() + 1))
+    let init_simplex = (0..BoardEval::dim() + 1)
         .map(|i| BoardEval::rand(i as u64).0)
         .collect::<Vec<_>>();
 
@@ -84,10 +84,10 @@ fn hash_point(point: &Vec<f32>) -> u64 {
 fn eval_point(point: &Vec<f32>, cache: &mut Cache, iter: usize) -> f32 {
     let board_eval = BoardEval(point.clone());
 
-    let iters = 20;
+    let iters = 10;
     let lines_cleared_max = 130;
     let mut score_sum = 0;
-    let start = 1 + iter / 3;
+    let start = 1 + iter / 10;
 
     cache.remove(&(start - 1));
 
