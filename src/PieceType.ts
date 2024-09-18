@@ -1,4 +1,4 @@
-enum PieceType {
+export enum PieceType {
     I,
     O,
     J,
@@ -8,12 +8,12 @@ enum PieceType {
     T,
 }
 
-enum RotateDir {
+export enum RotateDir {
     Cw,
     Ccw,
 }
 
-const PIECE_GRIDS: { [key in PieceType]: number[] } = {
+export const PIECE_GRIDS: { [key in PieceType]: number[] } = {
     [PieceType.I]: [
         0b0000_0000_1111_0000,
         0b0010_0010_0010_0010,
@@ -58,11 +58,11 @@ const PIECE_GRIDS: { [key in PieceType]: number[] } = {
     ],
 };
 
-function grids(pieceType: PieceType): number[] {
+export function grids(pieceType: PieceType): number[] {
     return PIECE_GRIDS[pieceType];
 }
 
-function findGridIndex(grids: number[], grid: number): number {
+export function findGridIndex(grids: number[], grid: number): number {
     for (let i = 0; i < grids.length; i++) {
         if (grids[i] === grid) {
             return i;
@@ -71,7 +71,7 @@ function findGridIndex(grids: number[], grid: number): number {
     throw new Error("Grid not found");
 }
 
-class Piece {
+export class Piece {
     type_: PieceType;
     grid: number;
     pos: [number, number];
@@ -80,6 +80,10 @@ class Piece {
         this.type_ = type_;
         this.grid = grid;
         this.pos = pos;
+    }
+
+    clone() {
+        return new Piece(this.type_, this.grid, [this.pos[0], this.pos[1]]);
     }
 
     numRotations(): number {
