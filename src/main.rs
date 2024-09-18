@@ -17,14 +17,14 @@ mod piece_type_generator;
 fn main() {
     let model = fit_initial_model(300);
     show_n_steps(model.clone(), 15);
-    run_one_game(model.clone());
+    run_one_game(model.clone(), 1, 0);
     println!("{:?}", model);
-    println!("fitness: {}", ground_fitness(&model, 130, 10_000, 1000));
+    println!("fitness: {}", ground_fitness(&model, 1, 130, 10_000, 100));
 }
 
 #[allow(dead_code)]
-fn run_one_game(model: Vec<f32>) {
-    let mut game = Game::new(0, 130, BoardEval(model), 1);
+fn run_one_game(model: Vec<f32>, depth: usize, seed: u64) {
+    let mut game = Game::new(seed, 130, BoardEval(model), depth);
 
     while !game.board.finished {
         game.step();

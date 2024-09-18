@@ -254,17 +254,17 @@ lazy_static! {
                 "1 1",
                 " T ",
             ],
-            vec![ // shallow w
-                "1   1",
-                "1 T 1",
-                " T T ",
-            ],
-            vec![ // deep w
-                "1   1",
-                "1 T 1",
-                "1 1 1",
-                " T T ",
-            ],
+            // vec![ // shallow w
+            //     "1   1",
+            //     "1 T 1",
+            //     " T T ",
+            // ],
+            // vec![ // deep w
+            //     "1   1",
+            //     "1 T 1",
+            //     "1 1 1",
+            //     " T T ",
+            // ],
         ].iter().map(|p| SurfacePattern::new(p)).collect()
     };
 

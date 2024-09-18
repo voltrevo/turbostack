@@ -45,7 +45,7 @@ fn fitness(model: &Vec<f32>, cache: &mut Cache, iter: usize) -> f32 {
             continue;
         }
 
-        let fitness = ground_fitness(model, lines_cleared_max, seed, 1);
+        let fitness = ground_fitness(model, 1, lines_cleared_max, seed, 1);
 
         cache
             .entry(seed)
