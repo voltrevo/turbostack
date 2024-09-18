@@ -8,6 +8,16 @@ export enum PieceType {
     T,
 }
 
+export const ALL_PIECE_TYPES: PieceType[] = [
+    PieceType.I,
+    PieceType.O,
+    PieceType.J,
+    PieceType.L,
+    PieceType.S,
+    PieceType.Z,
+    PieceType.T,
+];
+
 export enum RotateDir {
     Cw,
     Ccw,

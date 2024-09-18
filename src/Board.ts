@@ -400,4 +400,37 @@ export class Board {
 
         return res;
     }
+
+    toStringDiff(prevBoard: Board): string {
+        let res = 'Board [\n';
+        res += '   ....................\n';
+
+        for (let i = 0; i < 20; i++) {
+            res += '  |';
+            for (let j = 0; j < 10; j++) {
+                const currCell = this.get(i, j);
+                const prevCell = prevBoard.get(i, j);
+
+                if (currCell && !prevCell) {
+                    res += '##'; // New cell added
+                } else if (!currCell && prevCell) {
+                    res += '--'; // Cell removed (after line clear)
+                } else if (currCell) {
+                    res += '[]'; // Existing cell
+                } else {
+                    res += '  '; // Empty cell
+                }
+            }
+            res += '|\n';
+        }
+
+        res += '  \\--------------------/\n\n';
+        res += `  lines: ${this.lines_cleared}/${this.lines_cleared_max}\n`;
+        res += `  score: ${this.score}\n`;
+        res += `  eff  : ${Math.round(this.score / (this.lines_cleared || 1))}\n`;
+        res += `  trt  : ${this.lines_cleared ? ((4.0 * this.tetrises) / this.lines_cleared * 100).toFixed(1) : '0.0'}%\n`;
+        res += ']';
+
+        return res;
+    }
 }

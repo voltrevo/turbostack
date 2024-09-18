@@ -20,5 +20,8 @@
   "bugs": {
     "url": "https://github.com/voltrevo/turbostack/issues"
   },
-  "homepage": "https://github.com/voltrevo/turbostack#readme"
+  "homepage": "https://github.com/voltrevo/turbostack#readme",
+  "dependencies": {
+    "tsx": "^4.19.1"
+  }
 }
