@@ -1,0 +1,24 @@
+{
+  "name": "turbostack",
+  "version": "0.0.0",
+  "description": "Stacking AI for NES Tetris",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/voltrevo/turbostack.git"
+  },
+  "keywords": [
+    "tetris",
+    "stacking",
+    "ai"
+  ],
+  "author": "Andrew Morris",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/voltrevo/turbostack/issues"
+  },
+  "homepage": "https://github.com/voltrevo/turbostack#readme"
+}
