@@ -366,9 +366,31 @@ impl BoardEval {
                 .sum::<usize>() as f32,
         );
 
-        let height = (board.cols.map(|c| c.height()).iter().sum::<usize>() as f32) / 10.0;
+        let (height, stdev_height) = {
+            // excluding well
+            let mut heights = Vec::<f32>::new();
+
+            for j in 0..10 {
+                if readiness_j != Some(j) {
+                    heights.push(board.cols[j].height() as f32);
+                }
+            }
+
+            let avg = heights.iter().sum::<f32>() / (heights.len() as f32);
+            let var = heights
+                .iter()
+                .map(|h| {
+                    let dh = h - avg;
+                    dh * dh
+                })
+                .sum::<f32>()
+                / (heights.len() as f32);
+
+            (avg, f32::sqrt(var))
+        };
 
         res.push(height);
+        res.push(stdev_height);
 
         res
     }
