@@ -20,7 +20,7 @@ impl<State: Default> NelderMead<State> {
         }
     }
 
-    pub fn optimize<F>(&mut self, func: F, tol: f32, max_iters: usize) -> Vec<f32>
+    pub fn minimize<F>(&mut self, func: F, tol: f32, max_iters: usize) -> Vec<f32>
     where
         F: Fn(&Vec<f32>, &mut State, usize) -> f32,
     {
@@ -91,15 +91,9 @@ impl<State: Default> NelderMead<State> {
                 })
                 .fold(0.0 / 0.0, f32::max); // max distance in the simplex
 
-            let line_val = self.simplex[self.simplex.len() / 2][0];
-
             println!(
-                "{}: {}, line_val: {}, avg_progress: {}, ({})",
-                iter,
-                -19.0 * median,
-                line_val,
-                -19.0 * avg_progress,
-                size
+                "{}: {}, avg_progress: {}, ({})",
+                iter, median, avg_progress, size
             );
 
             if size < tol || iter >= max_iters {
@@ -110,6 +104,13 @@ impl<State: Default> NelderMead<State> {
         }
 
         self.simplex[0].clone()
+    }
+
+    pub fn maximize<F>(&mut self, func: F, tol: f32, max_iters: usize) -> Vec<f32>
+    where
+        F: Fn(&Vec<f32>, &mut State, usize) -> f32,
+    {
+        self.minimize(|p, s, i| -func(p, s, i), tol, max_iters)
     }
 
     fn compute_centroid(&self, n: usize) -> Vec<f32> {
@@ -172,7 +173,7 @@ mod tests {
 
         let mut nelder_mead = NelderMead::<()>::new(initial_simplex, 0.5);
 
-        let result = nelder_mead.optimize(
+        let result = nelder_mead.minimize(
             |x, _, _| {
                 let a = 1.0;
                 let b = 100.0;
@@ -207,7 +208,7 @@ mod tests {
 
         let mut nelder_mead = NelderMead::<()>::new(initial_simplex, 0.5);
 
-        let result = nelder_mead.optimize(
+        let result = nelder_mead.minimize(
             |x, _, _| x.iter().map(|&xi| xi.powi(2)).sum::<f32>(), // Sum of squares function
             1e-6,                                                  // Tolerance
             1000,                                                  // Max iterations
@@ -230,7 +231,7 @@ mod tests {
 
         let mut nelder_mead = NelderMead::<()>::new(initial_simplex, 0.5);
 
-        let result = nelder_mead.optimize(
+        let result = nelder_mead.minimize(
             |x, _, _| (x[0] + 2.0 * x[1] - 7.0).powi(2) + (2.0 * x[0] + x[1] - 5.0).powi(2),
             1e-6, // Tolerance
             1000, // Max iterations

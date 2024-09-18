@@ -41,4 +41,4 @@ step 29: Game [
 
 At the moment it just prioritizes not making holes, then not making overhangs, then minimizing the stack height.
 
-The goal is to produce a sensible stacking strategy that is easy to learn and reproduce in human play, to ensure 
+The goal is to produce a sensible stacking strategy that is easy to learn and reproduce in human play, to ensure

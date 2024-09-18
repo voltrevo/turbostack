@@ -237,6 +237,37 @@ lazy_static! {
         ].iter().map(|p| SurfacePattern::new(p)).collect()
     };
 
+    static ref SIMPLE_PATTERNS: Vec<SurfacePattern> = {
+        [
+            vec![ // well depth >= 1
+                "1 1",
+                " T ",
+            ],
+            vec![ // well depth >= 2
+                "1 1",
+                "1 1",
+                " T ",
+            ],
+            vec![ // well depth >= 3
+                "1 1",
+                "1 1",
+                "1 1",
+                " T ",
+            ],
+            vec![ // shallow w
+                "1   1",
+                "1 T 1",
+                " T T ",
+            ],
+            vec![ // deep w
+                "1   1",
+                "1 T 1",
+                "1 1 1",
+                " T T ",
+            ],
+        ].iter().map(|p| SurfacePattern::new(p)).collect()
+    };
+
     pub static ref FEATURE_LEN: usize = BoardEval::features_sm(&Board::new(130)).len();
 }
 
@@ -316,29 +347,9 @@ impl BoardEval {
             pat_board.set(0, j, true);
         }
 
-        res.push(
-            GOOD_PATTERNS
-                .clone()
-                .iter()
-                .map(|p| pat_board.count_surface_pattern(p))
-                .sum::<usize>() as f32,
-        );
-
-        res.push(
-            BAD_PATTERNS
-                .clone()
-                .iter()
-                .map(|p| pat_board.count_surface_pattern(p))
-                .sum::<usize>() as f32,
-        );
-
-        res.push(
-            VERY_BAD_PATTERNS
-                .clone()
-                .iter()
-                .map(|p| pat_board.count_surface_pattern(p))
-                .sum::<usize>() as f32,
-        );
+        for pat in SIMPLE_PATTERNS.clone() {
+            res.push(pat_board.count_surface_pattern(&pat) as f32);
+        }
 
         let (height, stdev_height) = {
             // excluding well
