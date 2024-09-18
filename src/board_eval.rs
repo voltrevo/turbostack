@@ -277,7 +277,17 @@ impl BoardEval {
     }
 
     pub fn eval(&self, board: &Board) -> f32 {
-        self.eval_sm(board)
+        let mut res = 0.0;
+
+        let feat = Self::features_sm(board);
+
+        assert_eq!(feat.len(), self.0.len());
+
+        for i in 0..feat.len() {
+            res += feat[i] * self.0[i];
+        }
+
+        res
     }
 
     pub fn rand(seed: u64) -> Self {
@@ -292,21 +302,6 @@ impl BoardEval {
         }
 
         Self(data)
-    }
-
-    #[allow(dead_code)]
-    pub fn eval_sm(&self, board: &Board) -> f32 {
-        let mut res = 0.0;
-
-        let feat = Self::features_sm(board);
-
-        assert_eq!(feat.len(), self.0.len());
-
-        for i in 0..feat.len() {
-            res += feat[i] * self.0[i];
-        }
-
-        res
     }
 
     #[allow(dead_code)]
@@ -347,10 +342,6 @@ impl BoardEval {
             pat_board.set(0, j, true);
         }
 
-        for pat in SIMPLE_PATTERNS.clone() {
-            res.push(pat_board.count_surface_pattern(&pat) as f32);
-        }
-
         let (height, stdev_height) = {
             // excluding well
             let mut heights = Vec::<f32>::new();
@@ -376,6 +367,13 @@ impl BoardEval {
 
         res.push(height);
         res.push(stdev_height);
+
+        let max_height = *board.cols.map(|c| c.height()).iter().max().unwrap() as f32;
+        res.push(max_height);
+
+        for pat in SIMPLE_PATTERNS.clone() {
+            res.push(pat_board.count_surface_pattern(&pat) as f32);
+        }
 
         res
     }
