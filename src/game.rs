@@ -28,10 +28,10 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(seed: u64, board_eval: BoardEval) -> Self {
+    pub fn new(seed: u64, lines_cleared_max: usize, board_eval: BoardEval) -> Self {
         Self {
-            board: Board::new(),
-            last_board: Board::new(),
+            board: Board::new(lines_cleared_max),
+            last_board: Board::new(lines_cleared_max),
             board_eval,
             piece_type_generator: PieceTypeGenerator::new(),
             rng: StdRng::seed_from_u64(seed),

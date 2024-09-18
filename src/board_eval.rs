@@ -237,7 +237,7 @@ lazy_static! {
         ].iter().map(|p| SurfacePattern::new(p)).collect()
     };
 
-    pub static ref FEATURE_LEN: usize = BoardEval::features(&Board::new()).len();
+    pub static ref FEATURE_LEN: usize = BoardEval::features(&Board::new(130)).len();
 }
 
 impl BoardEval {
@@ -277,7 +277,7 @@ impl BoardEval {
     pub fn eval_sm(&self, board: &Board) -> f32 {
         let mut res = board.score as f32;
 
-        let line_value = self.line_value();
+        let line_value = f32::abs(self.line_value());
 
         res += line_value * board.lines_remaining();
 

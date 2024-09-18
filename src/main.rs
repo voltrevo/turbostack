@@ -59,7 +59,7 @@ fn first_explore() {
 
     let res_score = eval_point(&res, &mut Cache::default(), 0);
 
-    let mut game = Game::new(2, BoardEval(res.clone()));
+    let mut game = Game::new(2, 130, BoardEval(res.clone()));
 
     println!("{:?}", &game);
 
@@ -85,6 +85,7 @@ fn eval_point(point: &Vec<f32>, cache: &mut Cache, iter: usize) -> f32 {
     let board_eval = BoardEval(point.clone());
 
     let iters = 20;
+    let lines_cleared_max = 40;
     let mut score_sum = 0;
     let start = 1 + iter / 3;
 
@@ -104,7 +105,7 @@ fn eval_point(point: &Vec<f32>, cache: &mut Cache, iter: usize) -> f32 {
             continue;
         }
 
-        let mut game = Game::new(seed as u64, board_eval.clone());
+        let mut game = Game::new(seed as u64, lines_cleared_max, board_eval.clone());
 
         while !game.board.finished {
             game.step();
@@ -127,7 +128,7 @@ fn eval_point(point: &Vec<f32>, cache: &mut Cache, iter: usize) -> f32 {
 
 #[allow(dead_code)]
 fn run_one_game() {
-    let mut game = Game::new(0, BoardEval::rand(0));
+    let mut game = Game::new(0, 130, BoardEval::rand(0));
 
     while !game.board.finished {
         game.step();
@@ -138,7 +139,7 @@ fn run_one_game() {
 
 #[allow(dead_code)]
 fn show_n_steps(n: usize) {
-    let mut game = Game::new(0, BoardEval::rand(0));
+    let mut game = Game::new(0, 130, BoardEval::rand(0));
 
     println!("{:?}", &game);
 

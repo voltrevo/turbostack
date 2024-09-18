@@ -17,12 +17,12 @@ pub struct Board {
 }
 
 impl Board {
-    pub fn new() -> Self {
+    pub fn new(lines_cleared_max: usize) -> Self {
         Self {
             rows: [BoardRow::default(); 20],
             cols: [BoardCol::default(); 10],
             lines_cleared: 0,
-            lines_cleared_max: 130,
+            lines_cleared_max,
             finished: false,
             score: 0,
             tetrises: 0,
@@ -30,8 +30,8 @@ impl Board {
     }
 
     #[allow(dead_code)] // TODO
-    pub fn from_compact(s: &str) -> Board {
-        let mut board = Self::new();
+    pub fn from_compact(lines_cleared_max: usize, s: &str) -> Board {
+        let mut board = Self::new(lines_cleared_max);
 
         for (x, c) in s.chars().enumerate() {
             if c == '1' {
@@ -718,6 +718,7 @@ mod tests {
     #[test]
     fn test_tetris_readiness() {
         let board = Board::from_compact(
+            130,
             &[
                 "0000000000",
                 "0000000000",
