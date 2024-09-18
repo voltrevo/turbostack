@@ -86,7 +86,15 @@ impl<State: Default> NelderMead<State> {
                 })
                 .fold(0.0 / 0.0, f32::max); // max distance in the simplex
 
-            println!("{}: {} ({})", iter, median, size);
+            let line_val = 100.0 * f32::abs(self.simplex[self.simplex.len() / 2][0]);
+
+            println!(
+                "{}: {}, line_val: {} ({})",
+                iter,
+                -19.0 * median,
+                line_val,
+                size
+            );
 
             if size < tol || iter >= max_iters {
                 break;

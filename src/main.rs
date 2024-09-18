@@ -85,7 +85,7 @@ fn eval_point(point: &Vec<f32>, cache: &mut Cache, iter: usize) -> f32 {
     let board_eval = BoardEval(point.clone());
 
     let iters = 20;
-    let lines_cleared_max = 40;
+    let lines_cleared_max = 130;
     let mut score_sum = 0;
     let start = 1 + iter / 3;
 

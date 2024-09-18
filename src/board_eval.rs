@@ -266,7 +266,7 @@ impl BoardEval {
     pub fn line_value(&self) -> f32 {
         // A fixed multiplier of 100 seems to bring it into a 'sensible' range for optimization
         // algorithms. A good evaluator should value each line at 200+.
-        self.0[0] * 100.0
+        100.0 * f32::abs(self.0[0])
     }
 
     pub fn feature_line_weights(&self) -> &[f32] {
@@ -277,9 +277,7 @@ impl BoardEval {
     pub fn eval_sm(&self, board: &Board) -> f32 {
         let mut res = board.score as f32;
 
-        let line_value = f32::abs(self.line_value());
-
-        res += line_value * board.lines_remaining();
+        res += self.line_value() * board.lines_remaining();
 
         let feat = Self::features(board);
         let feat_line_weights = self.feature_line_weights();
@@ -315,7 +313,7 @@ impl BoardEval {
     pub fn features(board: &Board) -> Vec<f32> {
         let mut res = Vec::<f32>::new();
 
-        res.push(1.0); // avoids needing explicit constant term elsewhere
+        // res.push(1.0); // avoids needing explicit constant term elsewhere
 
         // res.push(board.score as f32); // hardcoded unscaled inclusion
 
@@ -323,7 +321,7 @@ impl BoardEval {
         // (features dot feature_weights) is also to be multiplied by whatever a line is worth
         // this way each feature can be understood to be worth a certain (possibly negative) number
         // of lines
-        // res.push(board.lines_remaining());
+        res.push(board.lines_remaining());
 
         res.push(board.overhangs().len() as f32);
         res.push(board.holes().len() as f32);
