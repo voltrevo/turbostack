@@ -13,7 +13,7 @@ impl PieceTypeGenerator {
         let rand0 = rand % 0b111;
         rand >>= 3;
 
-        if rand0 != 7 || rand0 != self.last as u32 {
+        if rand0 != 7 && rand0 != self.last as u32 {
             self.last = rand0 as u8;
             return PieceType::list()[rand0 as usize];
         }
