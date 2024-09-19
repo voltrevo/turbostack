@@ -14,12 +14,11 @@ async function generateAndSaveLookaheadTrainingData() {
     console.log('generating training data');
     // Generate training data using the board evaluator
 
-    while (trainingData.length < 50_000) {
+    while (trainingData.length < 1_000_000) {
         trainingData.push(...generateLookaheadTrainingData(boardEvaluator, 100, 10));
-        console.log(`${trainingData.length} / 50000`);
+        await saveTrainingData(trainingData);
+        console.log(`${trainingData.length} saved (max 1m)`);
     }
-
-    await saveTrainingData(trainingData);
 }
 
 generateAndSaveLookaheadTrainingData().catch(console.error);
