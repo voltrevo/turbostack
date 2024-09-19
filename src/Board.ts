@@ -65,10 +65,24 @@ class BoardCol {
         return 32 - Math.clz32(this.value);
     }
 
-    denseHeight(): number {
+    denseLowerHeight(): number {
         let res = 0;
 
         for (let i = 19; i >= 0; i--) {
+            if (this.get(i)) {
+                res++;
+            } else {
+                break;
+            }
+        }
+
+        return res;
+    }
+
+    denseUpperHeight(): number {
+        let res = 0;
+
+        for (let i = this.top(); i < 20; i++) {
             if (this.get(i)) {
                 res++;
             } else {
@@ -422,13 +436,13 @@ export class Board {
         const sortedHeights = heights.slice();
         sortedHeights.sort((a, b) => a - b);
 
-        const denseHeights = this.cols.map(c => c.denseHeight());
+        const denseLowerHeights = this.cols.map(c => c.denseLowerHeight());
 
         return {
             board,
             score: this.score,
             linesRemaining: this.linesRemaining(),
-            heights: [...heights, ...sortedHeights, ...denseHeights],
+            heights: [...heights, ...sortedHeights, ...denseLowerHeights],
         };
     }
 
