@@ -20,7 +20,7 @@ export function prepareTrainingData(trainingData: TrainingDataPair[]) {
 
     return {
         boardXs: tf.tensor(boardData).reshape([trainingData.length, 20, 10, 2]),
-        extraXs: tf.tensor(extraData).reshape([trainingData.length, 32]),
+        extraXs: tf.tensor(extraData).reshape([trainingData.length, 42]),
         ys: tf.tensor(labels).reshape([trainingData.length, 1])
     };
 };
@@ -37,7 +37,7 @@ export async function trainModel(
 
     await model.fit([extraXs], ys, {
         epochs,
-        batchSize: 32,
+        batchSize: 42,
         validationSplit: 0.2
     });
 

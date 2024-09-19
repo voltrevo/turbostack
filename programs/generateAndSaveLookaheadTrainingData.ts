@@ -1,8 +1,8 @@
-import { generateTrainingData, TrainingDataPair } from "../src/generateTrainingData";
+import { generateLookaheadTrainingData, generateTrainingData, TrainingDataPair } from "../src/generateTrainingData";
 import { createBoardEvaluator } from "../src/model";
 import { loadModel, saveTrainingData } from "./helpers/modelStorage";
 
-async function generateAndSaveTrainingData() {
+async function generateAndSaveLookaheadTrainingData() {
     console.log('loading model');
     let model = await loadModel();
 
@@ -15,11 +15,11 @@ async function generateAndSaveTrainingData() {
     // Generate training data using the board evaluator
 
     while (trainingData.length < 5_000) {
-        trainingData.push(...generateTrainingData(boardEvaluator, 100));
+        trainingData.push(...generateLookaheadTrainingData(boardEvaluator, 100, 10));
         console.log(`${trainingData.length} / 5000`);
     }
 
     await saveTrainingData(trainingData);
 }
 
-generateAndSaveTrainingData().catch(console.error);
+generateAndSaveLookaheadTrainingData().catch(console.error);

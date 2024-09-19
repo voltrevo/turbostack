@@ -5,7 +5,7 @@ import { BoardEvaluator, generateTrainingData } from "./generateTrainingData";
 export function showPerformanceSummary(
     boardEvaluator: BoardEvaluator,
 ) {
-    const newTrainingData = generateTrainingData(boardEvaluator, 50);
+    const newTrainingData = generateTrainingData(boardEvaluator, 30);
 
     const sample = getSampleBoard(boardEvaluator);
     console.log(sample.toString());

@@ -20,7 +20,7 @@ export function createModel() {
     // const flatten = tf.layers.flatten().apply(tensor);
 
     // Input for the extra features (lines remaining, current score)
-    const extraInput = tf.input({ shape: [32] });
+    const extraInput = tf.input({ shape: [42] });
 
     // Combine the outputs of the two branches
     // tensor = tf.layers.concatenate().apply([flatten as tf.SymbolicTensor, extraInput]);
@@ -50,12 +50,12 @@ export function createBoardEvaluator(model: Model): (boards: Board[]) => number[
         const mlInputData = boards.map(b => b.toMlInputData());
 
         // Extract boards, scores, and lines remaining from the input boards
-        const boardData: number[][][][] = mlInputData.map(d => d.board);
+        const boardData: number[][][][] = mlInputData.map(d => d.boardData);
         const extraData: number[][] = mlInputData.map(d => [d.linesRemaining, d.score, ...d.heights]);
 
         // Prepare tensors for the model
         // const boardTensor = tf.tensor(boardData).reshape([boards.length, 20, 10, 2]);  // Shape: [batchSize, rows, cols, channels]
-        const extraTensor = tf.tensor(extraData).reshape([boards.length, 32]);          // Shape: [batchSize, 2]
+        const extraTensor = tf.tensor(extraData).reshape([boards.length, 42]);          // Shape: [batchSize, 2]
 
         // Perform batch inference
         const predictions = model.predict([extraTensor]) as tf.Tensor;

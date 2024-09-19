@@ -460,12 +460,18 @@ export class Board {
         sortedHeights.sort((a, b) => a - b);
 
         const denseLowerHeights = this.cols.map(c => c.denseLowerHeight());
+        const denseUpperHeights = this.cols.map(c => c.denseUpperHeight());
 
         return {
             boardData,
             score: this.score,
             linesRemaining: this.linesRemaining(),
-            heights: [...heights, ...sortedHeights, ...denseLowerHeights],
+            heights: [
+                ...heights,
+                ...sortedHeights,
+                ...denseLowerHeights,
+                ...denseUpperHeights,
+            ],
         };
     }
 
