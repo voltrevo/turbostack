@@ -37,6 +37,10 @@ export function generateGameBoards(boardEvaluator: BoardEvaluator) {
 
         // Update the board to the best choice
         board = bestChoice;
+
+        if (board.cols.map(c => c.height()).reduce((a, b) => Math.max(a, b)) > 10) {
+            break;
+        }
     }
 
     // Get the final score of the game
