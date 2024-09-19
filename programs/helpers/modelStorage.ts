@@ -4,6 +4,7 @@ import path from 'path';
 import * as tf from '@tensorflow/tfjs-node';
 
 import { createModel, Model } from "../../src/model";
+import { TrainingDataPair } from '../../src/generateTrainingData';
 
 const location = path.resolve(process.cwd(), 'data/model');
 
@@ -34,4 +35,20 @@ async function exists(path: string) {
     } catch {
         return false;
     }
+}
+
+export async function saveTrainingData(trainingData: TrainingDataPair[]) {
+    await fs.writeFile('data/savedTrainingData.json', JSON.stringify(trainingData));
+}
+
+export async function loadTrainingData(): Promise<TrainingDataPair[] | undefined> {
+    let raw;
+
+    try {
+        raw = await fs.readFile('data/savedTrainingData.json', 'utf8');
+    } catch {
+        return undefined;
+    }
+
+    return JSON.parse(raw);
 }

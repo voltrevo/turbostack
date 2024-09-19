@@ -1,12 +1,11 @@
 import { Board } from "./Board";
 import { generateGameBoards } from "./generateGameBoards";
-import { BoardEvaluator, TrainingDataPair } from "./generateTrainingData";
+import { BoardEvaluator, generateTrainingData } from "./generateTrainingData";
 
 export function showPerformanceSummary(
     boardEvaluator: BoardEvaluator,
-    trainingData: TrainingDataPair[],
 ) {
-    // console.log(trainingData[1].mlInputData.board.map(r => r.map(c => c[0])));
+    const newTrainingData = generateTrainingData(boardEvaluator, 50);
 
     const sample = getSampleBoard(boardEvaluator);
     console.log(sample.toString());
@@ -16,7 +15,7 @@ export function showPerformanceSummary(
 
     console.log(
         'Average score:',
-        trainingData.map(x => x.finalScore).reduce((a, b) => a + b) / trainingData.length,
+        newTrainingData.map(x => x.finalScore).reduce((a, b) => a + b) / newTrainingData.length,
     );
 }
 
