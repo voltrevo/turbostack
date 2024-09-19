@@ -3,10 +3,10 @@ import { Board, MlInputData } from './Board';
 import { PieceType, ALL_PIECE_TYPES } from './PieceType';
 
 // The evalBoard function predicts the final score from the given board
-type EvalBoardFunction = (board: Board) => number;
+export type EvalBoardFunction = (board: Board) => number;
 
 // The output type of generateTrainingData
-type TrainingDataPair = {
+export type TrainingDataPair = {
     mlInputData: MlInputData;
     finalScore: number;
 }
