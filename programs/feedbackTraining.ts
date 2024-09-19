@@ -1,4 +1,4 @@
-import { generateTrainingData, TrainingDataPair } from "../src/generateTrainingData";
+import { generateLookaheadTrainingData, generateMixedTrainingData, generateTrainingData, TrainingDataPair } from "../src/generateTrainingData";
 import { createBoardEvaluator } from "../src/model";
 import { showPerformanceSummary } from "../src/showPerformanceSummary";
 import { trainModel } from "../src/train";
@@ -21,7 +21,7 @@ async function feedbackTraining() {
         trainingData = trainingData.slice(-4000);
 
         while (trainingData.length < 5000) {
-            trainingData.push(...generateTrainingData(boardEvaluator, 100, 1));
+            trainingData.push(...generateMixedTrainingData(boardEvaluator, 100, 2, 18));
             console.log('trainingData.length', trainingData.length);
         }
 

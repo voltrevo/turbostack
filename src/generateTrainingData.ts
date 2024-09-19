@@ -18,7 +18,11 @@ export type TrainingDataPair = {
  * @param n - Number of games to simulate.
  * @returns Array of training data pairs (mlData, finalScore).
  */
-export function generateTrainingData(boardEvaluator: BoardEvaluator, n: number, samplesPerGame: number): TrainingDataPair[] {
+export function generateTrainingData(
+    boardEvaluator: BoardEvaluator,
+    n: number,
+    samplesPerGame: number,
+): TrainingDataPair[] {
     const trainingData: TrainingDataPair[] = [];
 
     while (trainingData.length < n) {
@@ -146,6 +150,7 @@ function augmentLookahead({ board, boardEvaluator }: {
 
         if (choices.length === 0) {
             scores.push(board.score);
+            continue;
         }
 
         // Use evalBoard to evaluate each possible board
@@ -163,4 +168,92 @@ function augmentLookahead({ board, boardEvaluator }: {
         board,
         finalScore: avgScore,
     };
+}
+
+/**
+ * Generates training data for machine learning.
+ * @param boardEvaluator - Function that evaluates a board and predicts the final score.
+ * @param n - Number of games to simulate.
+ * @returns Array of training data pairs (mlData, finalScore).
+ */
+export function generateMixedTrainingData(
+    boardEvaluator: BoardEvaluator,
+    n: number,
+    deepSamplesPerGame: number,
+    lookaheadSamplesPerGame: number,
+): TrainingDataPair[] {
+    const trainingData: TrainingDataPair[] = [];
+
+    if (deepSamplesPerGame % 2 !== 0) {
+        throw new Error('deepSamplesPerGame must be a multiple of 2');
+    }
+
+    while (trainingData.length < n) {
+        const { positions, finalScore } = generateGameBoards(new Board(10), boardEvaluator);
+
+        if (positions.length === 0) {
+            throw new Error('Should not be possible');
+        }
+
+        for (let i = 0; i < deepSamplesPerGame; i += 2) {
+            const randomPosition = positions[Math.floor(Math.random() * positions.length)];
+
+            // Add the pair to the training data
+            trainingData.push(augment({
+                board: randomPosition,
+                finalScore,
+                boardEvaluator,
+            }));
+    
+            // also pick a random next move, play that, and train it
+            // (model is constantly asked to evaluate all the next choices, so we should train on that
+            // kind of thing as well as 'good' positions)
+    
+            const choices = randomPosition.findChoices(getRandomPieceType());
+            
+            if (choices.length === 0) {
+                continue;
+            }
+    
+            const randomChoice = choices[Math.floor(Math.random() * choices.length)];
+            const { finalScore: randomChoiceFinalScore } = generateGameBoards(randomChoice, boardEvaluator);
+    
+            // Add the pair to the training data
+            trainingData.push(augment({
+                board: randomChoice,
+                finalScore: randomChoiceFinalScore,
+                boardEvaluator,
+            }));
+        }
+
+        for (let i = 0; i < lookaheadSamplesPerGame; i++) {
+            const randomPosition = positions[Math.floor(Math.random() * positions.length)];
+
+            // Add the pair to the training data
+            trainingData.push(augmentLookahead({
+                board: randomPosition,
+                boardEvaluator,
+            }));
+    
+            // also pick a random next move, play that, and train it
+            // (model is constantly asked to evaluate all the next choices, so we should train on that
+            // kind of thing as well as 'good' positions)
+    
+            const choices = randomPosition.findChoices(getRandomPieceType());
+            
+            if (choices.length === 0) {
+                continue;
+            }
+    
+            const randomChoice = choices[Math.floor(Math.random() * choices.length)];
+    
+            // Add the pair to the training data
+            trainingData.push(augmentLookahead({
+                board: randomChoice,
+                boardEvaluator,
+            }));
+        }
+    }
+
+    return trainingData;
 }

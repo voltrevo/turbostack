@@ -1,22 +1,34 @@
 import { Board } from "./Board";
 import { generateGameBoards } from "./generateGameBoards";
 import { BoardEvaluator, generateTrainingData } from "./generateTrainingData";
+import { WelfordCalculator } from "./WelfordCalculator";
 
 export function showPerformanceSummary(
     boardEvaluator: BoardEvaluator,
 ) {
-    const newTrainingData = generateTrainingData(boardEvaluator, 30, 2);
-
     const sample = getSampleBoard(boardEvaluator);
     console.log(sample.toString());
     console.log('Prediction for sample above:', boardEvaluator([sample]));
 
     console.log('Game start prediction:', boardEvaluator([new Board(10)]));
 
-    console.log(
-        'Average score:',
-        newTrainingData.map(x => x.finalScore).reduce((a, b) => a + b) / newTrainingData.length,
-    );
+    const calc = new WelfordCalculator();
+
+    for (let i = 0; i < 300; i++) {
+        const { finalScore } = generateGameBoards(new Board(10), boardEvaluator);
+        calc.update(finalScore);
+    }
+
+    const mean = calc.getMean();
+    const stdev = calc.getStdev();
+    const metaStdev = stdev / Math.sqrt(calc.n);
+
+    // This is a little crude because it assumes stdev is the true value, but it seems to work
+    // more than well enough for our purposes
+    const rel2StdevError = 2 * metaStdev / mean;
+
+    console.log(`Avg: ${Math.round(mean)} ± ${(100 * rel2StdevError).toFixed(1)}% (n=${calc.n})`);
+    console.log(`Stdev: ${stdev}`);
 }
 
 function getSampleBoard(boardEvaluator: BoardEvaluator) {
