@@ -36,7 +36,7 @@ class BoardRow {
         return newRow;
     }
 
-    toMlData() {
+    toMlInputData() {
         const res: number[] = [];
 
         for (let j = 0; j < 10; j++) {
@@ -116,6 +116,8 @@ class BoardCol {
         return newCol;
     }
 }
+
+export type MlInputData = ReturnType<Board['toMlInputData']>;
 
 // Define the Board class
 export class Board {
@@ -389,9 +391,9 @@ export class Board {
         return newBoard;
     }
 
-    toMlData() {
+    toMlInputData() {
         const board = this.rows.map(
-            (r, i) => r.toMlData().map(
+            (r, i) => r.toMlInputData().map(
                 (c, j) => [
                     // cell data
                     c,
