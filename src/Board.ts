@@ -307,7 +307,7 @@ export class Board {
     }
 
     findChoices(pieceType: PieceType): Board[] {
-        const fittablePieces = new Map<string, Piece>();
+        const fittablePieces = new Map<number, Piece>();
         const restPositions = this.findRestPositions();
 
         for (const grid of grids(pieceType)) {
@@ -319,7 +319,7 @@ export class Board {
                     newPiece.pos = [restPos[0] - cellPos[0], restPos[1] - cellPos[1]];
 
                     if (this.canFitPiece(newPiece)) {
-                        const key = newPiece.toString();
+                        const key = newPiece.toMapKey();
                         fittablePieces.set(key, newPiece);
                     }
                 }

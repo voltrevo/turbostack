@@ -96,6 +96,20 @@ export class Piece {
         return new Piece(this.type_, this.grid, [this.pos[0], this.pos[1]]);
     }
 
+    toMapKey() {
+        let res = 0;
+
+        res += Number(this.type_);
+
+        res *= 2 ** 16;
+        res += this.grid;
+
+        res *= 200;
+        res += 10 * this.pos[0] + this.pos[1];
+
+        return res;
+    }
+
     numRotations(): number {
         switch (this.type_) {
             case PieceType.I:

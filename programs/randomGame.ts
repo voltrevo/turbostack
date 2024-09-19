@@ -1,5 +1,5 @@
 import { Board } from '../src/Board';
-import { Piece, PieceType, ALL_PIECE_TYPES } from '../src/PieceType';
+import { PieceType, ALL_PIECE_TYPES } from '../src/PieceType';
 
 // Function to get a random PieceType
 function getRandomPieceType(): PieceType {
@@ -7,19 +7,10 @@ function getRandomPieceType(): PieceType {
     return ALL_PIECE_TYPES[randomIndex];
 }
 
-// Function to print the board differences
-function printBoardDifference(prevBoard: Board | null, currBoard: Board): void {
-    if (prevBoard === null) {
-        console.log(currBoard.toString());
-    } else {
-        console.log(currBoard.toStringDiff(prevBoard));
-    }
-}
-
 // Main function to run the game
 function main(): void {
     let board = new Board(40); // You can set lines_cleared_max as desired
-    let previousBoard: Board | null = null;
+    let moves = 0;
 
     while (!board.finished) {
         const pieceType = getRandomPieceType();
@@ -32,10 +23,10 @@ function main(): void {
 
         const randomChoiceIndex = Math.floor(Math.random() * choices.length);
         const newBoard = choices[randomChoiceIndex];
+        moves++;
 
-        printBoardDifference(previousBoard, newBoard);
+        console.log(newBoard.toStringDiff(board));
 
-        previousBoard = board;
         board = newBoard;
     }
 
