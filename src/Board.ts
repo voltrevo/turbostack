@@ -35,6 +35,16 @@ class BoardRow {
         newRow.value = this.value;
         return newRow;
     }
+
+    toMlData() {
+        const res: number[] = [];
+
+        for (let j = 0; j < 10; j++) {
+            res.push(this.get(j) ? 1 : 0);
+        }
+
+        return res;
+    }
 }
 
 // Define BoardCol class
@@ -377,6 +387,26 @@ export class Board {
         newBoard.score = this.score;
         newBoard.tetrises = this.tetrises;
         return newBoard;
+    }
+
+    toMlData() {
+        const board = this.rows.map(
+            (r, i) => r.toMlData().map(
+                (c, j) => [
+                    // cell data
+                    c,
+
+                    // boundary data
+                    (i === 0 || i === 19 || j === 0 || j === 9) ? 1 : 0,
+                ],
+            ),
+        );
+
+        return {
+            board,
+            score: this.score,
+            linesRemaining: this.linesRemaining(),
+        };
     }
 
     toString(): string {
