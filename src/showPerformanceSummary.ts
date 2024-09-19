@@ -5,13 +5,13 @@ import { BoardEvaluator, generateTrainingData } from "./generateTrainingData";
 export function showPerformanceSummary(
     boardEvaluator: BoardEvaluator,
 ) {
-    const newTrainingData = generateTrainingData(boardEvaluator, 30);
+    const newTrainingData = generateTrainingData(boardEvaluator, 30, 2);
 
     const sample = getSampleBoard(boardEvaluator);
     console.log(sample.toString());
     console.log('Prediction for sample above:', boardEvaluator([sample]));
 
-    console.log('Game start prediction:', boardEvaluator([new Board(130)]));
+    console.log('Game start prediction:', boardEvaluator([new Board(10)]));
 
     console.log(
         'Average score:',
@@ -20,7 +20,11 @@ export function showPerformanceSummary(
 }
 
 function getSampleBoard(boardEvaluator: BoardEvaluator) {
-    const { positions } = generateGameBoards(new Board(130), boardEvaluator);
+    const { positions } = generateGameBoards(new Board(10), boardEvaluator);
+
+    if (positions.length === 0) {
+        throw new Error('Should not be possible');
+    }
 
     return positions[Math.floor(positions.length / 2)];
 }

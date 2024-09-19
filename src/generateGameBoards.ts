@@ -12,7 +12,7 @@ export function generateGameBoards(board: Board, boardEvaluator: BoardEvaluator)
         // Record the current board state
         positions.push(board.clone());
 
-        if (board.cols.map(c => c.height()).reduce((a, b) => Math.max(a, b)) > 10) {
+        if (board.cols.map(c => c.height()).reduce((a, b) => Math.max(a, b)) > 15) {
             break;
         }
 
@@ -49,10 +49,6 @@ export function generateGameBoards(board: Board, boardEvaluator: BoardEvaluator)
     // this is (hopefully) good for early learning which has no idea how
     // to score lines
     finalScore += positions.length;
-
-    if (positions.length === 0) {
-        throw new Error('Should not be possible');
-    }
 
     return { positions, finalScore };
 }

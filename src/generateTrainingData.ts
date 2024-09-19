@@ -18,40 +18,46 @@ export type TrainingDataPair = {
  * @param n - Number of games to simulate.
  * @returns Array of training data pairs (mlData, finalScore).
  */
-export function generateTrainingData(boardEvaluator: BoardEvaluator, n: number): TrainingDataPair[] {
+export function generateTrainingData(boardEvaluator: BoardEvaluator, n: number, samplesPerGame: number): TrainingDataPair[] {
     const trainingData: TrainingDataPair[] = [];
 
     while (trainingData.length < n) {
-        const { positions, finalScore } = generateGameBoards(new Board(130), boardEvaluator);
+        const { positions, finalScore } = generateGameBoards(new Board(10), boardEvaluator);
 
-        const randomPosition = positions[Math.floor(Math.random() * positions.length)];
-
-        // Add the pair to the training data
-        trainingData.push(augment({
-            board: randomPosition,
-            finalScore: finalScore,
-            boardEvaluator,
-        }));
-
-        // also pick a random next move, play that, and train it
-        // (model is constantly asked to evaluate all the next choices, so we should train on that
-        // kind of thing as well as 'good' positions)
-
-        const choices = randomPosition.findChoices(getRandomPieceType());
-        
-        if (choices.length === 0) {
-            continue;
+        if (positions.length === 0) {
+            throw new Error('Should not be possible');
         }
 
-        const randomChoice = choices[Math.floor(Math.random() * choices.length)];
-        const { finalScore: randomChoiceFinalScore } = generateGameBoards(randomChoice, boardEvaluator);
+        for (let i = 0; i < samplesPerGame; i++) {
+            const randomPosition = positions[Math.floor(Math.random() * positions.length)];
 
-        // Add the pair to the training data
-        trainingData.push(augment({
-            board: randomChoice,
-            finalScore: randomChoiceFinalScore,
-            boardEvaluator,
-        }));
+            // Add the pair to the training data
+            trainingData.push(augment({
+                board: randomPosition,
+                finalScore: finalScore,
+                boardEvaluator,
+            }));
+    
+            // also pick a random next move, play that, and train it
+            // (model is constantly asked to evaluate all the next choices, so we should train on that
+            // kind of thing as well as 'good' positions)
+    
+            const choices = randomPosition.findChoices(getRandomPieceType());
+            
+            if (choices.length === 0) {
+                continue;
+            }
+    
+            const randomChoice = choices[Math.floor(Math.random() * choices.length)];
+            const { finalScore: randomChoiceFinalScore } = generateGameBoards(randomChoice, boardEvaluator);
+    
+            // Add the pair to the training data
+            trainingData.push(augment({
+                board: randomChoice,
+                finalScore: randomChoiceFinalScore,
+                boardEvaluator,
+            }));
+        }
     }
 
     return trainingData;
@@ -91,7 +97,11 @@ export function generateLookaheadTrainingData(
     const trainingData: TrainingDataPair[] = [];
 
     while (trainingData.length < n) {
-        const { positions } = generateGameBoards(new Board(130), boardEvaluator);
+        const { positions } = generateGameBoards(new Board(10), boardEvaluator);
+
+        if (positions.length === 0) {
+            throw new Error('Should not be possible');
+        }
 
         for (let i = 0; i < samplesPerGame; i++) {
             const randomPosition = positions[Math.floor(Math.random() * positions.length)];

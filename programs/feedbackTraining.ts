@@ -21,7 +21,7 @@ async function feedbackTraining() {
         trainingData = trainingData.slice(-4000);
 
         while (trainingData.length < 5000) {
-            trainingData.push(...generateTrainingData(boardEvaluator, 100));
+            trainingData.push(...generateTrainingData(boardEvaluator, 100, 1));
             console.log('trainingData.length', trainingData.length);
         }
 

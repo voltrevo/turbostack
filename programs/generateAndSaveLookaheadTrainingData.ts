@@ -1,4 +1,4 @@
-import { generateLookaheadTrainingData, generateTrainingData, TrainingDataPair } from "../src/generateTrainingData";
+import { generateLookaheadTrainingData, TrainingDataPair } from "../src/generateTrainingData";
 import { createBoardEvaluator } from "../src/model";
 import { loadModel, saveTrainingData } from "./helpers/modelStorage";
 
@@ -14,9 +14,9 @@ async function generateAndSaveLookaheadTrainingData() {
     console.log('generating training data');
     // Generate training data using the board evaluator
 
-    while (trainingData.length < 5_000) {
+    while (trainingData.length < 50_000) {
         trainingData.push(...generateLookaheadTrainingData(boardEvaluator, 100, 10));
-        console.log(`${trainingData.length} / 5000`);
+        console.log(`${trainingData.length} / 50000`);
     }
 
     await saveTrainingData(trainingData);
