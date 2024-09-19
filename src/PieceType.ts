@@ -153,3 +153,9 @@ export class Piece {
         throw new Error("Failed to find 4 cells in tetromino");
     }
 }
+
+// Helper function to get a random PieceType
+export function getRandomPieceType(): PieceType {
+    const randomIndex = Math.floor(Math.random() * ALL_PIECE_TYPES.length);
+    return ALL_PIECE_TYPES[randomIndex];
+}

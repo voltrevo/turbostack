@@ -1,32 +1,36 @@
 import * as tf from '@tensorflow/tfjs-node';
 import { Board } from './Board';
 
+type Tensorish = tf.SymbolicTensor | tf.Tensor<tf.Rank> | tf.Tensor<tf.Rank>[] | tf.SymbolicTensor[];
+
 export function createModel() {
     // Input for the Tetris board (20x10 binary matrix with boundary data)
-    const boardInput = tf.input({ shape: [20, 10, 2] });
+    let tensor: Tensorish = tf.input({ shape: [20, 10, 2] });
+
+    const boardInput = tensor;
 
     // Convolutional layers to process the input (board + boundary)
-    const conv1 = tf.layers.conv2d({ filters: 32, kernelSize: 3, activation: 'relu' }).apply(boardInput);
-    const pool1 = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(conv1);
+    tensor = tf.layers.conv2d({ filters: 32, kernelSize: 3, activation: 'relu' }).apply(tensor);
+    tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor);
 
-    const conv2 = tf.layers.conv2d({ filters: 64, kernelSize: 3, activation: 'relu' }).apply(pool1);
-    const pool2 = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(conv2);
+    tensor = tf.layers.conv2d({ filters: 64, kernelSize: 3, activation: 'relu' }).apply(tensor);
+    tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor);
 
     // Flatten and fully connected layers
-    const flatten = tf.layers.flatten().apply(pool2);
+    const flatten = tf.layers.flatten().apply(tensor);
 
     // Input for the extra features (lines remaining, current score)
     const extraInput = tf.input({ shape: [2] });
 
     // Combine the outputs of the two branches
-    const combined = tf.layers.concatenate().apply([flatten as tf.SymbolicTensor, extraInput]);
+    tensor = tf.layers.concatenate().apply([flatten as tf.SymbolicTensor, extraInput]);
 
     // Fully connected layers
-    const dense1 = tf.layers.dense({ units: 128, activation: 'relu' }).apply(combined);
-    const dense2 = tf.layers.dense({ units: 64, activation: 'relu' }).apply(dense1);
+    tensor = tf.layers.dense({ units: 128, activation: 'relu' }).apply(tensor);
+    tensor = tf.layers.dense({ units: 64, activation: 'relu' }).apply(tensor);
 
     // Output layer for score prediction
-    const output = tf.layers.dense({ units: 1 }).apply(dense2);
+    const output = tf.layers.dense({ units: 1 }).apply(tensor);
 
     // Create and compile the model
     const model = tf.model({ inputs: [boardInput, extraInput], outputs: output as tf.SymbolicTensor });

@@ -26,13 +26,17 @@ export function prepareTrainingData(trainingData: TrainingDataPair[]) {
 };
 
 // Training function
-export async function trainModel(existingModel: Model | undefined, trainingData: TrainingDataPair[]) {
+export async function trainModel(
+    existingModel: Model | undefined,
+    trainingData: TrainingDataPair[],
+    epochs: number,
+) {
     const model = existingModel ?? createModel();
 
     const { boardXs, extraXs, ys } = prepareTrainingData(trainingData);
 
     await model.fit([boardXs, extraXs], ys, {
-        epochs: 50,
+        epochs,
         batchSize: 32,
         validationSplit: 0.2
     });
