@@ -20,7 +20,7 @@ export function showPerformanceSummary(
 }
 
 function getSampleBoard(boardEvaluator: BoardEvaluator) {
-    const { positions } = generateGameBoards(boardEvaluator);
+    const { positions } = generateGameBoards(new Board(130), boardEvaluator);
 
     return positions[Math.floor(positions.length / 2)];
 }

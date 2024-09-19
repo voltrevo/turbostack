@@ -2,8 +2,7 @@ import { Board } from "./Board";
 import { BoardEvaluator } from "./generateTrainingData";
 import { getRandomPieceType } from "./PieceType";
 
-export function generateGameBoards(boardEvaluator: BoardEvaluator) {
-    let board = new Board(130); // Adjust lines_cleared_max as needed
+export function generateGameBoards(board: Board, boardEvaluator: BoardEvaluator) {
     const positions: Board[] = [];
 
     // enough for 1000 lines, should not be possible
@@ -12,6 +11,10 @@ export function generateGameBoards(boardEvaluator: BoardEvaluator) {
     while (!board.finished) {
         // Record the current board state
         positions.push(board.clone());
+
+        if (board.cols.map(c => c.height()).reduce((a, b) => Math.max(a, b)) > 10) {
+            break;
+        }
 
         if (positions.length === maxGameIterations) {
             throw new Error('This should not be possible');
@@ -37,10 +40,6 @@ export function generateGameBoards(boardEvaluator: BoardEvaluator) {
 
         // Update the board to the best choice
         board = bestChoice;
-
-        if (board.cols.map(c => c.height()).reduce((a, b) => Math.max(a, b)) > 10) {
-            break;
-        }
     }
 
     // Get the final score of the game
