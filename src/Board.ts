@@ -147,6 +147,8 @@ class BoardCol {
 
 export type MlInputData = ReturnType<Board['toMlInputData']>;
 
+export type BoardJson = ReturnType<Board['toJson']>;
+
 // Define the Board class
 export class Board {
     rows: BoardRow[];
@@ -165,6 +167,27 @@ export class Board {
         this.finished = false;
         this.score = 0;
         this.tetrises = 0;
+    }
+
+    toJson() {
+        return {
+            compact: this.toCompactString(),
+            linesCleared: this.lines_cleared,
+            linesClearedMax: this.lines_cleared_max,
+            finished: this.finished,
+            score: this.score,
+            tetrises: this.tetrises,
+        };
+    }
+
+    static fromJson(json: BoardJson) {
+        const board = Board.fromCompact(json.linesClearedMax, json.compact);
+        board.lines_cleared = json.linesCleared;
+        board.finished = json.finished;
+        board.score = json.score;
+        board.tetrises = json.tetrises;
+
+        return board;
     }
 
     static fromCompact(lines_cleared_max: number, s: string): Board {
@@ -420,7 +443,7 @@ export class Board {
     }
 
     toMlInputData() {
-        const board = this.rows.map(
+        const boardData = this.rows.map(
             (r, i) => r.toMlInputData().map(
                 (c, j) => [
                     // cell data
@@ -439,7 +462,7 @@ export class Board {
         const denseLowerHeights = this.cols.map(c => c.denseLowerHeight());
 
         return {
-            board,
+            boardData,
             score: this.score,
             linesRemaining: this.linesRemaining(),
             heights: [...heights, ...sortedHeights, ...denseLowerHeights],

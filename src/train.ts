@@ -5,15 +5,15 @@ import { createModel, Model } from './model';
 
 // Function to prepare the training data
 export function prepareTrainingData(trainingData: TrainingDataPair[]) {
-    const boardData: MlInputData['board'][] = [];
+    const boardData: MlInputData['boardData'][] = [];
     const extraData: number[][] = [];
     const labels: number[] = [];
 
-    trainingData.forEach(({ mlInputData, finalScore }) => {
-        const { board, score, linesRemaining, heights } = mlInputData;
+    trainingData.forEach(({ board, finalScore }) => {
+        const { boardData: currBoardData, score, linesRemaining, heights } = board.toMlInputData();
 
         // Use the board data directly, as it is already in the [row][column][channel] format
-        boardData.push(board);
+        boardData.push(currBoardData);
         extraData.push([linesRemaining, score, ...heights]);
         labels.push(finalScore);
     });

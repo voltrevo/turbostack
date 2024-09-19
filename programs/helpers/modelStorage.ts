@@ -5,6 +5,7 @@ import * as tf from '@tensorflow/tfjs-node';
 
 import { createModel, Model } from "../../src/model";
 import { TrainingDataPair } from '../../src/generateTrainingData';
+import { Board, BoardJson } from '../../src/Board';
 
 const location = path.resolve(process.cwd(), 'data/model');
 
@@ -38,7 +39,12 @@ async function exists(path: string) {
 }
 
 export async function saveTrainingData(trainingData: TrainingDataPair[]) {
-    await fs.writeFile('data/savedTrainingData.json', JSON.stringify(trainingData));
+    await fs.writeFile('data/savedTrainingData.json', JSON.stringify(trainingData.map(
+        ({ board, finalScore }) => ({
+            board: board.toJson(),
+            finalScore,
+        }),
+    )));
 }
 
 export async function loadTrainingData(): Promise<TrainingDataPair[] | undefined> {
@@ -50,5 +56,10 @@ export async function loadTrainingData(): Promise<TrainingDataPair[] | undefined
         return undefined;
     }
 
-    return JSON.parse(raw);
+    const jsonBoards: { board: BoardJson, finalScore: number }[] = JSON.parse(raw);
+
+    return jsonBoards.map(jb => ({
+        board: Board.fromJson(jb.board),
+        finalScore: jb.finalScore,
+    }));
 }

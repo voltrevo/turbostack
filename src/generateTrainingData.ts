@@ -1,5 +1,5 @@
 // Assuming Board, PieceType, and other necessary classes and functions are imported
-import { Board, MlInputData } from './Board';
+import { Board } from './Board';
 import { generateGameBoards } from './generateGameBoards';
 import { getRandomPieceType } from './PieceType';
 
@@ -8,7 +8,7 @@ export type BoardEvaluator = (boards: Board[]) => number[];
 
 // The output type of generateTrainingData
 export type TrainingDataPair = {
-    mlInputData: MlInputData;
+    board: Board;
     finalScore: number;
 };
 
@@ -26,6 +26,16 @@ export function generateTrainingData(boardEvaluator: BoardEvaluator, n: number):
 
         const randomPosition = positions[Math.floor(Math.random() * positions.length)];
 
+        // Add the pair to the training data
+        trainingData.push({
+            board: randomPosition,
+            finalScore: finalScore,
+        });
+
+        // also pick a random next move, play that, and train it
+        // (model is constantly asked to evaluate all the next choices, so we should train on that
+        // kind of thing as well as 'good' positions)
+
         const choices = randomPosition.findChoices(getRandomPieceType());
         
         if (choices.length === 0) {
@@ -37,7 +47,7 @@ export function generateTrainingData(boardEvaluator: BoardEvaluator, n: number):
 
         // Add the pair to the training data
         trainingData.push({
-            mlInputData: randomChoice.toMlInputData(),
+            board: randomChoice,
             finalScore: randomChoiceFinalScore,
         });
     }

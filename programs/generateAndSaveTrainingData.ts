@@ -14,9 +14,9 @@ async function generateAndSaveTrainingData() {
     console.log('generating training data');
     // Generate training data using the board evaluator
 
-    while (trainingData.length < 20_000) {
+    while (trainingData.length < 5_000) {
         trainingData.push(...generateTrainingData(boardEvaluator, 1000));
-        console.log(`${trainingData.length} / 20000`);
+        console.log(`${trainingData.length} / 5000`);
     }
 
     await saveTrainingData(trainingData);
