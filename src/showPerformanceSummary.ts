@@ -1,3 +1,4 @@
+import { stdMaxLines } from "../programs/helpers/hyperParams";
 import { Board } from "./Board";
 import { generateGameBoards } from "./generateGameBoards";
 import { BoardEvaluator, generateTrainingData } from "./generateTrainingData";
@@ -10,12 +11,12 @@ export function showPerformanceSummary(
     console.log(sample.toString());
     console.log('Prediction for sample above:', boardEvaluator([sample]));
 
-    console.log('Game start prediction:', boardEvaluator([new Board(10)]));
+    console.log('Game start prediction:', boardEvaluator([new Board(stdMaxLines)]));
 
     const calc = new WelfordCalculator();
 
     for (let i = 0; i < 300; i++) {
-        const { finalScore } = generateGameBoards(new Board(10), boardEvaluator);
+        const { finalScore } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
         calc.update(finalScore);
     }
 
@@ -32,7 +33,7 @@ export function showPerformanceSummary(
 }
 
 function getSampleBoard(boardEvaluator: BoardEvaluator) {
-    const { positions } = generateGameBoards(new Board(10), boardEvaluator);
+    const { positions } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
 
     if (positions.length === 0) {
         throw new Error('Should not be possible');

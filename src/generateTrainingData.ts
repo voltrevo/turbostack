@@ -1,4 +1,5 @@
 // Assuming Board, PieceType, and other necessary classes and functions are imported
+import { stdMaxLines } from '../programs/helpers/hyperParams';
 import { Board } from './Board';
 import { generateGameBoards } from './generateGameBoards';
 import { ALL_PIECE_TYPES, getRandomPieceType } from './PieceType';
@@ -26,7 +27,7 @@ export function generateTrainingData(
     const trainingData: TrainingDataPair[] = [];
 
     while (trainingData.length < n) {
-        const { positions, finalScore } = generateGameBoards(new Board(10), boardEvaluator);
+        const { positions, finalScore } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
 
         if (positions.length === 0) {
             throw new Error('Should not be possible');
@@ -101,7 +102,7 @@ export function generateLookaheadTrainingData(
     const trainingData: TrainingDataPair[] = [];
 
     while (trainingData.length < n) {
-        const { positions } = generateGameBoards(new Board(10), boardEvaluator);
+        const { positions } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
 
         if (positions.length === 0) {
             throw new Error('Should not be possible');
@@ -189,7 +190,7 @@ export function generateMixedTrainingData(
     }
 
     while (trainingData.length < n) {
-        const { positions, finalScore } = generateGameBoards(new Board(10), boardEvaluator);
+        const { positions, finalScore } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
 
         if (positions.length === 0) {
             throw new Error('Should not be possible');

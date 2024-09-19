@@ -3,6 +3,7 @@ import { generateGameBoards } from "../src/generateGameBoards";
 import { createBoardEvaluator } from "../src/model";
 import { WelfordCalculator } from "../src/WelfordCalculator";
 import { loadModel } from "./helpers/modelStorage";
+import { stdMaxLines } from "./helpers/hyperParams";
 
 async function evaluateModel() {
     console.log('loading model');
@@ -15,7 +16,7 @@ async function evaluateModel() {
 
     while (true) {
         for (let i = 0; i < 100; i++) {
-            const { finalScore } = generateGameBoards(new Board(10), boardEvaluator);
+            const { finalScore } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
             calc.update(finalScore);
         }
 
