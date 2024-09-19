@@ -9,25 +9,25 @@ export function createModel() {
 
     const boardInput = tensor;
 
-    // Convolutional layers to process the input (board + boundary)
-    tensor = tf.layers.conv2d({ filters: 32, kernelSize: 3, activation: 'relu' }).apply(tensor);
+    // // Convolutional layers to process the input (board + boundary)
+    tensor = tf.layers.conv2d({ filters: 16, kernelSize: 4, activation: 'relu' }).apply(tensor);
     tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor);
 
-    tensor = tf.layers.conv2d({ filters: 64, kernelSize: 3, activation: 'relu' }).apply(tensor);
-    tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor);
+    // tensor = tf.layers.conv2d({ filters: 64, kernelSize: 3, activation: 'relu' }).apply(tensor);
+    // tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor);
 
-    // Flatten and fully connected layers
+    // // Flatten and fully connected layers
     const flatten = tf.layers.flatten().apply(tensor);
 
     // Input for the extra features (lines remaining, current score)
-    const extraInput = tf.input({ shape: [2] });
+    const extraInput = tf.input({ shape: [3] });
 
     // Combine the outputs of the two branches
     tensor = tf.layers.concatenate().apply([flatten as tf.SymbolicTensor, extraInput]);
 
     // Fully connected layers
-    tensor = tf.layers.dense({ units: 128, activation: 'relu' }).apply(tensor);
-    tensor = tf.layers.dense({ units: 64, activation: 'relu' }).apply(tensor);
+    tensor = tf.layers.dense({ units: 16, activation: 'relu' }).apply(tensor);
+    // tensor = tf.layers.dense({ units: 64, activation: 'relu' }).apply(tensor);
 
     // Output layer for score prediction
     const output = tf.layers.dense({ units: 1 }).apply(tensor);
@@ -51,11 +51,11 @@ export function createBoardEvaluator(model: Model): (boards: Board[]) => number[
 
         // Extract boards, scores, and lines remaining from the input boards
         const boardData: number[][][][] = mlInputData.map(d => d.board);
-        const extraData: [number, number][] = mlInputData.map(d => [d.linesRemaining, d.score]);
+        const extraData: [number, number, number][] = mlInputData.map(d => [d.linesRemaining, d.score, d.maxHeight]);
 
         // Prepare tensors for the model
         const boardTensor = tf.tensor(boardData).reshape([boards.length, 20, 10, 2]);  // Shape: [batchSize, rows, cols, channels]
-        const extraTensor = tf.tensor(extraData).reshape([boards.length, 2]);          // Shape: [batchSize, 2]
+        const extraTensor = tf.tensor(extraData).reshape([boards.length, 3]);          // Shape: [batchSize, 2]
 
         // Perform batch inference
         const predictions = model.predict([boardTensor, extraTensor]) as tf.Tensor;

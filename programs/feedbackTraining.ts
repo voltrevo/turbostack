@@ -16,10 +16,10 @@ async function feedbackTraining() {
 
         console.log('generating training data');
         // Generate training data using the board evaluator
-        trainingData.push(...generateTrainingData(boardEvaluator, 100, 40));
+        trainingData = generateTrainingData(boardEvaluator, 1000);
 
         // Train the model on the training data
-        model = await trainModel(model, trainingData, 10);
+        model = await trainModel(model, trainingData, 25);
 
         // Use the updated model to replace the training data
         boardEvaluator = createBoardEvaluator(model);

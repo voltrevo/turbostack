@@ -408,6 +408,7 @@ export class Board {
             board,
             score: this.score,
             linesRemaining: this.linesRemaining(),
+            maxHeight: this.cols.map(c => c.height()).reduce((a, b) => Math.max(a, b)),
         };
     }
 

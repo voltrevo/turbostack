@@ -1,7 +1,6 @@
 // Assuming Board, PieceType, and other necessary classes and functions are imported
 import { Board, MlInputData } from './Board';
 import { generateGameBoards } from './generateGameBoards';
-import { getRandomPieceType } from './PieceType';
 
 // The evalBoard function predicts the final score from the given board
 export type BoardEvaluator = (boards: Board[]) => number[];
@@ -18,32 +17,19 @@ export type TrainingDataPair = {
  * @param n - Number of games to simulate.
  * @returns Array of training data pairs (mlData, finalScore).
  */
-export function generateTrainingData(boardEvaluator: BoardEvaluator, n: number, samplesPerGame: number): TrainingDataPair[] {
+export function generateTrainingData(boardEvaluator: BoardEvaluator, n: number): TrainingDataPair[] {
     const trainingData: TrainingDataPair[] = [];
 
-    for (let gameIndex = 0; gameIndex < n; gameIndex++) {
+    while (trainingData.length < n) {
         const { positions, finalScore } = generateGameBoards(boardEvaluator);
 
-        for (let i = 0; i < samplesPerGame; i++) {
-            // Pick one position at random from the game
-            let position;
+        const randomPosition = positions[Math.floor(Math.random() * positions.length)];
 
-            if (i === 0) {
-                position = positions[0];
-            } else {
-                const randomIndex = Math.floor(Math.random() * positions.length);
-                position = positions[randomIndex];
-            }
-
-            // Get the mlData from the randomly selected position
-            const mlInputData = position.toMlInputData();
-
-            // Add the pair to the training data
-            trainingData.push({
-                mlInputData,
-                finalScore,
-            });
-        }
+        // Add the pair to the training data
+        trainingData.push({
+            mlInputData: randomPosition.toMlInputData(),
+            finalScore,
+        });
     }
 
     return trainingData;

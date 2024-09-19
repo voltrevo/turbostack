@@ -6,21 +6,21 @@ import { createModel, Model } from './model';
 // Function to prepare the training data
 export function prepareTrainingData(trainingData: TrainingDataPair[]) {
     const boardData: MlInputData['board'][] = [];
-    const extraData: [number, number][] = [];
+    const extraData: [number, number, number][] = [];
     const labels: number[] = [];
 
     trainingData.forEach(({ mlInputData, finalScore }) => {
-        const { board, score, linesRemaining } = mlInputData;
+        const { board, score, linesRemaining, maxHeight } = mlInputData;
 
         // Use the board data directly, as it is already in the [row][column][channel] format
         boardData.push(board);
-        extraData.push([linesRemaining, score]);
+        extraData.push([linesRemaining, score, maxHeight]);
         labels.push(finalScore);
     });
 
     return {
         boardXs: tf.tensor(boardData).reshape([trainingData.length, 20, 10, 2]),
-        extraXs: tf.tensor(extraData).reshape([trainingData.length, 2]),
+        extraXs: tf.tensor(extraData).reshape([trainingData.length, 3]),
         ys: tf.tensor(labels).reshape([trainingData.length, 1])
     };
 };
