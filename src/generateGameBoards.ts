@@ -12,10 +12,6 @@ export function generateGameBoards(board: Board, boardEvaluator: BoardEvaluator)
         // Record the current board state
         positions.push(board.clone());
 
-        if (board.cols.map(c => c.height()).reduce((a, b) => Math.max(a, b)) > 15) {
-            break;
-        }
-
         if (positions.length === maxGameIterations) {
             throw new Error('This should not be possible');
         }
