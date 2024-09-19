@@ -1,1 +1,1 @@
-export const stdMaxLines = 10;
+export const stdMaxLines = 20;
