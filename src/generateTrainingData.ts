@@ -1,5 +1,5 @@
 // Assuming Board, PieceType, and other necessary classes and functions are imported
-import { deepSamplesPerGame, lookaheadSamplesPerGame, stdMaxLines } from '../programs/helpers/hyperParams';
+import { boardGenBacktrackLen, deepSamplesPerGame, lookaheadSamplesPerGame, stdMaxLines } from '../programs/helpers/hyperParams';
 import { Board } from './Board';
 import { generateGameBoards } from './generateGameBoards';
 import { ALL_PIECE_TYPES, getRandomPieceType } from './PieceType';
@@ -25,69 +25,48 @@ export function generateTrainingData(
 ): TrainingDataPair[] {
     const trainingData: TrainingDataPair[] = [];
 
-    if (deepSamplesPerGame % 2 !== 0) {
-        throw new Error('deepSamplesPerGame must be a multiple of 2');
-    }
-
     while (trainingData.length < n) {
-        const { positions, finalScore } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
+        const { positions } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
 
         if (positions.length === 0) {
             throw new Error('Should not be possible');
         }
 
-        for (let i = 0; i < deepSamplesPerGame; i += 2) {
-            const randomPosition = positions[Math.floor(Math.random() * positions.length)];
+        const backtrackLen = (
+            boardGenBacktrackLen.min +
+            Math.floor(Math.random() * (
+                boardGenBacktrackLen.max - boardGenBacktrackLen.min
+            ))
+        );
 
-            // Add the pair to the training data
-            trainingData.push(augment({
-                board: randomPosition,
-                finalScore,
-                boardEvaluator,
-            }));
-    
-            // also pick a random next move, play that, and train it
+        const positionIndex = Math.max(0, positions.length - backtrackLen);
+        const position = positions[positionIndex];
+
+        const choices = position.findChoices(getRandomPieceType());
+
+        if (choices.length === 0) {
+            continue;
+        }
+
+        for (let i = 0; i < deepSamplesPerGame; i++) {
+            // pick a random next move, play that, and train it
             // (model is constantly asked to evaluate all the next choices, so we should train on that
             // kind of thing as well as 'good' positions)
-
-            const choices = randomPosition.findChoices(getRandomPieceType());
-
-            if (choices.length === 0) {
-                continue;
-            }
-
             const randomChoice = choices[Math.floor(Math.random() * choices.length)];
-            const { finalScore: randomChoiceFinalScore } = generateGameBoards(randomChoice, boardEvaluator);
-    
+            const { finalScore } = generateGameBoards(randomChoice, boardEvaluator);
+
             // Add the pair to the training data
             trainingData.push(augment({
                 board: randomChoice,
-                finalScore: randomChoiceFinalScore,
+                finalScore,
                 boardEvaluator,
             }));
         }
 
         for (let i = 0; i < lookaheadSamplesPerGame; i++) {
-            const randomPosition = positions[Math.floor(Math.random() * positions.length)];
-
-            // Add the pair to the training data
-            trainingData.push(augmentLookahead({
-                board: randomPosition,
-                boardEvaluator,
-            }));
-    
-            // also pick a random next move, play that, and train it
-            // (model is constantly asked to evaluate all the next choices, so we should train on that
-            // kind of thing as well as 'good' positions)
-    
-            const choices = randomPosition.findChoices(getRandomPieceType());
-            
-            if (choices.length === 0) {
-                continue;
-            }
-    
+            // pick a random next move, play that, and train it
             const randomChoice = choices[Math.floor(Math.random() * choices.length)];
-    
+
             // Add the pair to the training data
             trainingData.push(augmentLookahead({
                 board: randomChoice,
