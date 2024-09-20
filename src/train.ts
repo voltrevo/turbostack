@@ -2,7 +2,7 @@ import * as tf from '@tensorflow/tfjs-node';
 import { TrainingDataPair } from './generateTrainingData';
 import { MlInputData } from './Board';
 import { createModel, Model } from './model';
-import { extraFeatureLen } from '../programs/helpers/hyperParams';
+import { extraFeatureLen, useBoard } from '../programs/helpers/hyperParams';
 
 // Function to prepare the training data
 export function prepareTrainingData(trainingData: TrainingDataPair[]) {
@@ -38,7 +38,15 @@ export async function trainModel(
 
     const { boardXs, extraXs, ys } = prepareTrainingData(trainingData);
 
-    await model.fit([boardXs, extraXs], ys, {
+    const xs: tf.Tensor<tf.Rank>[] = [];
+
+    if (useBoard) {
+        xs.push(boardXs);
+    }
+
+    xs.push(extraXs);
+
+    await model.fit(xs, ys, {
         epochs,
         batchSize: 32,
         validationSplit: 0.2

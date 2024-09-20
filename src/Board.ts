@@ -1,5 +1,5 @@
 // Import the necessary classes and enums from PieceType.ts
-import { extraFeatureLen } from '../programs/helpers/hyperParams';
+import { extraFeatureLen, useCustomFeatures } from '../programs/helpers/hyperParams';
 import { grids, Piece, PieceType, RotateDir } from './PieceType';
 
 // Define BoardRow class
@@ -456,20 +456,23 @@ export class Board {
             ),
         );
 
-        // const heights = this.cols.map(c => c.height());
-        // const sortedHeights = heights.slice();
-        // sortedHeights.sort((a, b) => a - b);
+        const extraFeatures = [this.linesRemaining()];
 
-        // const denseLowerHeights = this.cols.map(c => c.denseLowerHeight());
-        // const denseUpperHeights = this.cols.map(c => c.denseUpperHeight());
+        if (useCustomFeatures) {
+            const heights = this.cols.map(c => c.height());
+            const sortedHeights = heights.slice();
+            sortedHeights.sort((a, b) => a - b);
 
-        const extraFeatures = [
-            this.linesRemaining(),
-            //     ...heights,
-            //     ...sortedHeights,
-            //     ...denseLowerHeights,
-            //     ...denseUpperHeights,
-        ];
+            const denseLowerHeights = this.cols.map(c => c.denseLowerHeight());
+            const denseUpperHeights = this.cols.map(c => c.denseUpperHeight());
+
+            extraFeatures.push(...[
+                ...heights,
+                ...sortedHeights,
+                ...denseLowerHeights,
+                ...denseUpperHeights,
+            ]);
+        }
 
         if (extraFeatures.length !== extraFeatureLen) {
             throw new Error('extraFeatures len mismatch');
