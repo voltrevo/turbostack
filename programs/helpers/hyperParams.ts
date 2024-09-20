@@ -23,9 +23,9 @@ export const lookaheadSamplesPerGame = 0;
 // Other than the board itself, how many features?
 // Standard is just linesRemaining
 // Sometimes experiment with extra handcrafted stuff
-export const extraFeatureLen = 41;
+export const extraFeatureLen = 1;
 
-export const useCustomFeatures = true;
+export const useCustomFeatures = false;
 export const useBoard = true;
 
 export const validationSplit = 0.2;

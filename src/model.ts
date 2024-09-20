@@ -6,7 +6,7 @@ import { extraFeatureLen, useBoard } from '../programs/helpers/hyperParams';
 
 export function createModel() {
     const inputs: tf.SymbolicTensor[] = [];
-    const inputsToDenseLayers: tf.SymbolicTensor[] = [];
+    const inputsToFinalLayers: tf.SymbolicTensor[] = [];
 
     if (useBoard) {
         // Input for the Tetris board (20x10 binary matrix with boundary data)
@@ -16,37 +16,43 @@ export function createModel() {
         inputs.push(boardInput);
 
         // // Convolutional layers to process the input (board + boundary)
-        tensor = tf.layers.conv2d({ filters: 4, kernelSize: 3, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
+        tensor = tf.layers.conv2d({ filters: 8, kernelSize: 4, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
         // tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor) as tf.SymbolicTensor;
 
-        // tensor = tf.layers.conv2d({ filters: 4, kernelSize: 4, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
+        tensor = tf.layers.conv2d({
+            filters: 16,
+            kernelSize: [1, 9],
+            activation: 'relu',
+        }).apply(tensor) as tf.SymbolicTensor;
         // tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor) as tf.SymbolicTensor;
 
         // Flatten and fully connected layers
-        const flatten = tf.layers.flatten().apply(tensor) as tf.SymbolicTensor;
+        tensor = tf.layers.flatten().apply(tensor) as tf.SymbolicTensor;
 
-        inputsToDenseLayers.push(flatten);
+        tensor = tf.layers.dense({ units: 16, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
+
+        inputsToFinalLayers.push(tensor);
     }
 
     // Input for the extra features (lines remaining, current score)
     const extraInput = tf.input({ shape: [extraFeatureLen] });
     inputs.push(extraInput);
 
-    inputsToDenseLayers.push(extraInput);
+    inputsToFinalLayers.push(extraInput);
 
     let tensor;
 
-    if (inputsToDenseLayers.length > 1) {
+    if (inputsToFinalLayers.length > 1) {
         // Combine the outputs of the two branches
-        tensor = tf.layers.concatenate().apply(inputsToDenseLayers) as tf.SymbolicTensor;
-    } else if (inputsToDenseLayers.length === 1) {
-        tensor = inputsToDenseLayers[0];
+        tensor = tf.layers.concatenate().apply(inputsToFinalLayers) as tf.SymbolicTensor;
+    } else if (inputsToFinalLayers.length === 1) {
+        tensor = inputsToFinalLayers[0];
     } else {
         throw new Error('unexpected len');
     }
 
     // Fully connected layers
-    tensor = tf.layers.dense({ units: 32, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
+    tensor = tf.layers.dense({ units: 8, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
     // tensor = tf.layers.dropout({ rate: 0.3 }).apply(tensor);
 
     // tensor = tf.layers.dense({ units: 16, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
@@ -62,6 +68,8 @@ export function createModel() {
         optimizer: 'adam',
         loss: 'meanSquaredError'
     });
+
+    model.summary();
 
     return model;
 };
