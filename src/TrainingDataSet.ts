@@ -87,7 +87,7 @@ export function prepareTrainingData(trainingData: TrainingDataPair[]) {
         labels.push(scoreRemaining);
     });
 
-    const boardXs = tf.tensor(boardData).reshape([trainingData.length, 20, 10, 2]);
+    const boardXs = tf.tensor(boardData).reshape([trainingData.length, 20, 10, 1]);
     const extraXs = tf.tensor(extraData).reshape([trainingData.length, extraFeatureLen]);
 
     const xs = [];

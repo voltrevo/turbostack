@@ -10,7 +10,7 @@ export function createModel() {
 
     if (useBoard) {
         // Input for the Tetris board (20x10 binary matrix with boundary data)
-        let tensor = tf.input({ shape: [20, 10, 2] });
+        let tensor = tf.input({ shape: [20, 10, 1] });
 
         const boardInput = tensor;
         inputs.push(boardInput);
@@ -82,7 +82,7 @@ export function createBoardEvaluator(model: Model): (boards: Board[]) => number[
         if (useBoard) {
             inputTensors.push(
                 // Shape: [batchSize, rows, cols, channels]
-                tf.tensor(boardData).reshape([boards.length, 20, 10, 2]),
+                tf.tensor(boardData).reshape([boards.length, 20, 10, 1]),
             );
         }
 
