@@ -18,9 +18,9 @@ async function feedbackTraining() {
 
         console.log('generating training data');
         // Generate training data using the board evaluator
-        trainingData = trainingData.slice(-400);
+        trainingData = trainingData.slice(-1200);
 
-        while (trainingData.length < 500) {
+        while (trainingData.length < 1500) {
             trainingData.push(...generateTrainingData(boardEvaluator, 100));
             console.log('trainingData.length', trainingData.length);
         }

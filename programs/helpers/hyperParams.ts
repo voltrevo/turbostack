@@ -9,6 +9,9 @@ export const boardGenBacktrackLen = {
 export const nPlayoutsToAvg = 10;
 
 export const stdMaxLines = 130;
+
+// Note: there are also hardcoded per-column limits in Board.ts (expressed as minI instead of height, sorry)
+// (Both sets of limits will apply, so the lower height limit for each column will be the effective limit)
 export const artificialHeightLimit = Infinity;
 
 // When generating training data, what percentage should be lookahead data
@@ -24,4 +27,4 @@ export const lookaheadSamplesPerGame = 0;
 export const extraFeatureLen = 41;
 
 export const useCustomFeatures = true;
-export const useBoard = false;
+export const useBoard = true;
