@@ -2,6 +2,7 @@ import * as tf from '@tensorflow/tfjs-node';
 import { TrainingDataPair } from './generateTrainingData';
 import { MlInputData } from './Board';
 import { createModel, Model } from './model';
+import { extraFeatureLen } from '../programs/helpers/hyperParams';
 
 // Function to prepare the training data
 export function prepareTrainingData(trainingData: TrainingDataPair[]) {
@@ -10,11 +11,11 @@ export function prepareTrainingData(trainingData: TrainingDataPair[]) {
     const labels: number[] = [];
 
     trainingData.forEach(({ board, finalScore }) => {
-        const { boardData: currBoardData, linesRemaining, otherFeatures } = board.toMlInputData();
+        const { boardData: currBoardData, extraFeatures } = board.toMlInputData();
 
         // Use the board data directly, as it is already in the [row][column][channel] format
         boardData.push(currBoardData);
-        extraData.push([linesRemaining, ...otherFeatures]);
+        extraData.push([...extraFeatures]);
 
         const scoreRemaining = finalScore - board.score
         labels.push(scoreRemaining);
@@ -22,7 +23,7 @@ export function prepareTrainingData(trainingData: TrainingDataPair[]) {
 
     return {
         boardXs: tf.tensor(boardData).reshape([trainingData.length, 20, 10, 2]),
-        extraXs: tf.tensor(extraData).reshape([trainingData.length, 1]),
+        extraXs: tf.tensor(extraData).reshape([trainingData.length, extraFeatureLen]),
         ys: tf.tensor(labels).reshape([trainingData.length, 1])
     };
 };

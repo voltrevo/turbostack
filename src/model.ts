@@ -1,7 +1,8 @@
 import * as tf from '@tensorflow/tfjs-node';
 import { Board } from './Board';
+import { extraFeatureLen } from '../programs/helpers/hyperParams';
 
-type Tensorish = tf.SymbolicTensor | tf.Tensor<tf.Rank> | tf.Tensor<tf.Rank>[] | tf.SymbolicTensor[];
+// type Tensorish = tf.SymbolicTensor | tf.Tensor<tf.Rank> | tf.Tensor<tf.Rank>[] | tf.SymbolicTensor[];
 
 export function createModel() {
     // Input for the Tetris board (20x10 binary matrix with boundary data)
@@ -20,7 +21,7 @@ export function createModel() {
     const flatten = tf.layers.flatten().apply(tensor);
 
     // Input for the extra features (lines remaining, current score)
-    const extraInput = tf.input({ shape: [1] });
+    const extraInput = tf.input({ shape: [extraFeatureLen] });
 
     // Combine the outputs of the two branches
     tensor = tf.layers.concatenate().apply([flatten as tf.SymbolicTensor, extraInput]) as tf.SymbolicTensor;
@@ -51,11 +52,11 @@ export function createBoardEvaluator(model: Model): (boards: Board[]) => number[
 
         // Extract boards, scores, and lines remaining from the input boards
         const boardData: number[][][][] = mlInputData.map(d => d.boardData);
-        const extraData: number[][] = mlInputData.map(d => [d.linesRemaining, ...d.otherFeatures]);
+        const extraData: number[][] = mlInputData.map(d => [...d.extraFeatures]);
 
         // Prepare tensors for the model
         const boardTensor = tf.tensor(boardData).reshape([boards.length, 20, 10, 2]);  // Shape: [batchSize, rows, cols, channels]
-        const extraTensor = tf.tensor(extraData).reshape([boards.length, 1]);          // Shape: [batchSize, 2]
+        const extraTensor = tf.tensor(extraData).reshape([boards.length, extraFeatureLen]);          // Shape: [batchSize, 2]
 
         // Perform batch inference
         const predictions = model.predict([boardTensor, extraTensor]) as tf.Tensor;

@@ -17,3 +17,8 @@ export const lookaheadRatio = 0;
 
 export const deepSamplesPerGame = 10;
 export const lookaheadSamplesPerGame = 0;
+
+// Other than the board itself, how many features?
+// Standard is just linesRemaining
+// Sometimes experiment with extra handcrafted stuff
+export const extraFeatureLen = 1;
