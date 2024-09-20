@@ -309,12 +309,6 @@ export class Board {
             return false;
         }
 
-        for (const [i, j] of piece.cellPositions()) {
-            if (i < Board.minI(j)) {
-                return false;
-            }
-        }
-
         if (this.pieceReachableSimple(piece)) {
             return true;
         }
@@ -396,6 +390,13 @@ export class Board {
             const board = this.clone();
             board.insertPieceUnchecked(piece);
             board.removeClears();
+
+            for (const [i, j] of board.cols.map((c, j) => [c.top(), j])) {
+                if (i < Board.minI(j)) {
+                    board.finished = true;
+                }
+            }
+
             res.push(board);
         }
 
