@@ -2,6 +2,7 @@
 import { boardGenBacktrackLen, deepSamplesPerGame, lookaheadSamplesPerGame, stdMaxLines } from '../programs/helpers/hyperParams';
 import { Board } from './Board';
 import { generateGameBoards } from './generateGameBoards';
+import { randomBoardEvaluator } from './model';
 import { ALL_PIECE_TYPES, getRandomPieceType } from './PieceType';
 
 // The evalBoard function predicts the final score from the given board
@@ -26,7 +27,7 @@ export function generateTrainingData(
     const trainingData: TrainingDataPair[] = [];
 
     while (trainingData.length < n) {
-        const { positions } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
+        const { positions } = generateGameBoards(new Board(stdMaxLines), randomBoardEvaluator);
 
         if (positions.length === 0) {
             throw new Error('Should not be possible');

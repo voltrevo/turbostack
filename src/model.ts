@@ -1,6 +1,7 @@
 import * as tf from '@tensorflow/tfjs-node';
 import { Board } from './Board';
 import { extraFeatureLen, useBoard } from '../programs/helpers/hyperParams';
+import { BoardEvaluator } from './generateTrainingData';
 
 // type Tensorish = tf.SymbolicTensor | tf.Tensor<tf.Rank> | tf.Tensor<tf.Rank>[] | tf.SymbolicTensor[];
 
@@ -110,4 +111,8 @@ export function createBoardEvaluator(model: Model): (boards: Board[]) => number[
         return Array.from(predictedRemainingScores)
             .map((p, i) => boards[i].score + p); // add current score to remaining prediction
     };
+}
+
+export const randomBoardEvaluator: BoardEvaluator = (boards: Board[]): number[] => {
+    return boards.map(_b => Math.random());
 }
