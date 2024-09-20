@@ -1,7 +1,7 @@
 import { stdMaxLines } from "../programs/helpers/hyperParams";
 import { Board } from "./Board";
 import { generateGameBoards } from "./generateGameBoards";
-import { BoardEvaluator, generateTrainingData } from "./generateTrainingData";
+import { BoardEvaluator } from "./generateTrainingData";
 import { WelfordCalculator } from "./WelfordCalculator";
 
 export function showPerformanceSummary(
