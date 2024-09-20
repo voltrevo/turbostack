@@ -49,7 +49,7 @@ export function createModel() {
     tensor = tf.layers.dense({ units: 32, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
     // tensor = tf.layers.dropout({ rate: 0.3 }).apply(tensor);
 
-    tensor = tf.layers.dense({ units: 16, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
+    // tensor = tf.layers.dense({ units: 16, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
     // tensor = tf.layers.dropout({ rate: 0.3 }).apply(tensor);
 
     // Output layer for score prediction
