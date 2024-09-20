@@ -1,12 +1,12 @@
 // When generating training data, play to the end, then backtrack this number of moves
 export const boardGenBacktrackLen = {
     min: 2,
-    max: 5,
+    max: 7,
 };
 
 // When playing to the end to determine the final score to use for training, play this many times
 // and average them
-export const nPlayoutsToAvg = 10;
+export const nPlayoutsToAvg = 5;
 
 export const stdMaxLines = 130;
 
@@ -14,10 +14,9 @@ export const stdMaxLines = 130;
 // (Both sets of limits will apply, so the lower height limit for each column will be the effective limit)
 export const artificialHeightLimit = Infinity;
 
-// When generating training data, what percentage should be lookahead data
+// When generating training data, how many deep samples and how many lookahead samples to generate
+// for each base game
 // (lookahead data is training the current board on the average eval of the next move)
-export const lookaheadRatio = 0;
-
 export const deepSamplesPerGame = 10;
 export const lookaheadSamplesPerGame = 0;
 
@@ -28,3 +27,5 @@ export const extraFeatureLen = 41;
 
 export const useCustomFeatures = true;
 export const useBoard = true;
+
+export const validationSplit = 0.2;

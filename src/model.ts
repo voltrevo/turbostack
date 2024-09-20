@@ -16,10 +16,10 @@ export function createModel() {
         inputs.push(boardInput);
 
         // // Convolutional layers to process the input (board + boundary)
-        tensor = tf.layers.conv2d({ filters: 16, kernelSize: 4, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
+        tensor = tf.layers.conv2d({ filters: 8, kernelSize: 4, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
         tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor) as tf.SymbolicTensor;
 
-        tensor = tf.layers.conv2d({ filters: 32, kernelSize: 3, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
+        tensor = tf.layers.conv2d({ filters: 4, kernelSize: 4, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
         tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor) as tf.SymbolicTensor;
 
         // Flatten and fully connected layers
@@ -47,7 +47,10 @@ export function createModel() {
 
     // Fully connected layers
     tensor = tf.layers.dense({ units: 32, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
+    tensor = tf.layers.dropout({ rate: 0.3 }).apply(tensor);
+
     tensor = tf.layers.dense({ units: 16, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
+    tensor = tf.layers.dropout({ rate: 0.3 }).apply(tensor);
 
     // Output layer for score prediction
     const output = tf.layers.dense({ units: 1 }).apply(tensor);

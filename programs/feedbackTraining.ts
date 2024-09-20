@@ -2,6 +2,7 @@ import { generateTrainingData, TrainingDataPair } from "../src/generateTrainingD
 import { createBoardEvaluator } from "../src/model";
 import { showPerformanceSummary } from "../src/showPerformanceSummary";
 import { trainModel } from "../src/train";
+import { TrainingDataSet } from "../src/TrainingDataSet";
 import { loadModel, loadTrainingData, saveModel, saveTrainingData } from "./helpers/modelStorage";
 
 async function feedbackTraining() {
@@ -10,7 +11,7 @@ async function feedbackTraining() {
     console.log('loading model');
     let model = await loadModel();
 
-    let trainingData: TrainingDataPair[] = (await loadTrainingData()) ?? [];
+    let trainingData = await TrainingDataSet.load();
 
     while (true) {
         // Create a board evaluator using the blank model
@@ -18,17 +19,17 @@ async function feedbackTraining() {
 
         console.log('generating training data');
         // Generate training data using the board evaluator
-        trainingData = trainingData.slice(-1200);
+        trainingData.keepRecent(1200);
 
-        while (trainingData.length < 1500) {
-            trainingData.push(...generateTrainingData(boardEvaluator, 100));
-            console.log('trainingData.length', trainingData.length);
+        while (trainingData.size() < 1500) {
+            trainingData.add(generateTrainingData(boardEvaluator, 100));
+            console.log('trainingData.size()', trainingData.size());
         }
 
-        await saveTrainingData(trainingData);
+        await trainingData.save();
 
         // Train the model on the training data
-        model = await trainModel(model, trainingData, 50);
+        model = await trainModel(model, trainingData, 200);
 
         // Use the updated model to replace the training data
         boardEvaluator = createBoardEvaluator(model);

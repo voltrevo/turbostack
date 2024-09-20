@@ -1,12 +1,13 @@
-import { generateTrainingData, TrainingDataPair } from "../src/generateTrainingData";
+import { generateTrainingData } from "../src/generateTrainingData";
 import { createBoardEvaluator } from "../src/model";
-import { loadModel, saveTrainingData } from "./helpers/modelStorage";
+import { TrainingDataSet } from "../src/TrainingDataSet";
+import { loadModel } from "./helpers/modelStorage";
 
 async function generateAndSaveTrainingData() {
     console.log('loading model');
     let model = await loadModel();
 
-    let trainingData: TrainingDataPair[] = [];
+    let trainingData = new TrainingDataSet();
 
     // Create a board evaluator using the blank model
     let boardEvaluator = createBoardEvaluator(model);
@@ -14,12 +15,12 @@ async function generateAndSaveTrainingData() {
     console.log('generating training data');
     // Generate training data using the board evaluator
 
-    while (trainingData.length < 5_000) {
-        trainingData.push(...generateTrainingData(boardEvaluator, 100));
-        console.log(`${trainingData.length} / 5000`);
+    while (trainingData.size() < 5_000) {
+        trainingData.add(generateTrainingData(boardEvaluator, 100));
+        console.log(`${trainingData.size()} / 5000`);
     }
 
-    await saveTrainingData(trainingData);
+    await trainingData.save();
 }
 
 generateAndSaveTrainingData().catch(console.error);

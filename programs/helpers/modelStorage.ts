@@ -6,6 +6,7 @@ import * as tf from '@tensorflow/tfjs-node';
 import { createModel, Model } from "../../src/model";
 import { TrainingDataPair } from '../../src/generateTrainingData';
 import { Board, BoardJson } from '../../src/Board';
+import { TrainingDataSet } from '../../src/TrainingDataSet';
 
 const location = path.resolve(process.cwd(), 'data/model');
 
@@ -38,16 +39,24 @@ async function exists(path: string) {
     }
 }
 
-export async function saveTrainingData(trainingData: TrainingDataPair[]) {
-    await fs.writeFile('data/savedTrainingData.json', JSON.stringify(trainingData.map(
+export async function saveTrainingData(trainingDataSet: TrainingDataSet) {
+    const toSaveFmt = (data: TrainingDataPair[]) => data.map(
         ({ board, finalScore }) => ({
             board: board.toJson(),
             finalScore,
         }),
-    )));
+    );
+
+    await fs.writeFile('data/savedTrainingData.json', JSON.stringify({
+        data: toSaveFmt(trainingDataSet.data),
+        valData: toSaveFmt(trainingDataSet.valData),
+    }));
 }
 
-export async function loadTrainingData(): Promise<TrainingDataPair[] | undefined> {
+export async function loadTrainingData(): Promise<{
+    data: TrainingDataPair[],
+    valData: TrainingDataPair[],
+} | undefined> {
     let raw;
 
     try {
@@ -56,10 +65,20 @@ export async function loadTrainingData(): Promise<TrainingDataPair[] | undefined
         return undefined;
     }
 
-    const jsonBoards: { board: BoardJson, finalScore: number }[] = JSON.parse(raw);
+    type SaveFmt = { board: BoardJson, finalScore: number }[];
 
-    return jsonBoards.map(jb => ({
-        board: Board.fromJson(jb.board),
-        finalScore: jb.finalScore,
+    const jsonBoards: {
+        data: { board: BoardJson, finalScore: number }[],
+        valData: { board: BoardJson, finalScore: number }[]
+    } = JSON.parse(raw);
+
+    const fromSaveFmt = (s: SaveFmt): TrainingDataPair[] => s.map(({ board, finalScore }) => ({
+        board: Board.fromJson(board),
+        finalScore: finalScore,
     }));
+
+    return {
+        data: fromSaveFmt(jsonBoards.data),
+        valData: fromSaveFmt(jsonBoards.valData),
+    };
 }
