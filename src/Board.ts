@@ -38,11 +38,13 @@ class BoardRow {
     }
 
     toMlInputData() {
-        const res: number[] = [];
+        const res: number[] = [1];
 
         for (let j = 0; j < 10; j++) {
             res.push(this.get(j) ? 1 : 0);
         }
+
+        res.push(1);
 
         return res;
     }
@@ -456,6 +458,8 @@ export class Board {
                 ],
             ),
         );
+
+        boardData.push([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1].map(x => [x]))
 
         const extraFeatures = [this.linesRemaining()];
 
