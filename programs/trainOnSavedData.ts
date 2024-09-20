@@ -20,8 +20,11 @@ async function trainOnSavedData() {
     let boardEvaluator = createBoardEvaluator(model);
 
     while (true) {
+        const cut = Math.floor(Math.random() * (trainingData.length - 10_000));
+        const sampleTrainingData = trainingData.slice(cut, cut + 10_000);
+
         // Train the model on the training data
-        model = await trainModel(model, trainingData, 50);
+        model = await trainModel(model, sampleTrainingData, 10);
 
         // Use the updated model to replace the training data
         boardEvaluator = createBoardEvaluator(model);

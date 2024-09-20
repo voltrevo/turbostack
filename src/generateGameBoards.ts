@@ -1,3 +1,4 @@
+import { artificialHeightLimit } from "../programs/helpers/hyperParams";
 import { Board } from "./Board";
 import { BoardEvaluator } from "./generateTrainingData";
 import { getRandomPieceType } from "./PieceType";
@@ -11,6 +12,10 @@ export function generateGameBoards(board: Board, boardEvaluator: BoardEvaluator)
     while (!board.finished) {
         // Record the current board state
         positions.push(board.clone());
+
+        if (board.maxHeight() > artificialHeightLimit) {
+            break;
+        }
 
         if (positions.length === maxGameIterations) {
             throw new Error('This should not be possible');

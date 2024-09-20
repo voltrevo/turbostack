@@ -10,17 +10,17 @@ export function prepareTrainingData(trainingData: TrainingDataPair[]) {
     const labels: number[] = [];
 
     trainingData.forEach(({ board, finalScore }) => {
-        const { boardData: currBoardData, score, linesRemaining, heights } = board.toMlInputData();
+        const { boardData: currBoardData, score, linesRemaining, otherFeatures } = board.toMlInputData();
 
         // Use the board data directly, as it is already in the [row][column][channel] format
         boardData.push(currBoardData);
-        extraData.push([linesRemaining, score, ...heights]);
+        extraData.push([linesRemaining, score, ...otherFeatures]);
         labels.push(finalScore);
     });
 
     return {
         boardXs: tf.tensor(boardData).reshape([trainingData.length, 20, 10, 2]),
-        extraXs: tf.tensor(extraData).reshape([trainingData.length, 42]),
+        extraXs: tf.tensor(extraData).reshape([trainingData.length, 2]),
         ys: tf.tensor(labels).reshape([trainingData.length, 1])
     };
 };
@@ -35,9 +35,9 @@ export async function trainModel(
 
     const { boardXs, extraXs, ys } = prepareTrainingData(trainingData);
 
-    await model.fit([extraXs], ys, {
+    await model.fit([boardXs, extraXs], ys, {
         epochs,
-        batchSize: 42,
+        batchSize: 32,
         validationSplit: 0.2
     });
 

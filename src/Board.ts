@@ -455,24 +455,29 @@ export class Board {
             ),
         );
 
-        const heights = this.cols.map(c => c.height());
-        const sortedHeights = heights.slice();
-        sortedHeights.sort((a, b) => a - b);
+        // const heights = this.cols.map(c => c.height());
+        // const sortedHeights = heights.slice();
+        // sortedHeights.sort((a, b) => a - b);
 
-        const denseLowerHeights = this.cols.map(c => c.denseLowerHeight());
-        const denseUpperHeights = this.cols.map(c => c.denseUpperHeight());
+        // const denseLowerHeights = this.cols.map(c => c.denseLowerHeight());
+        // const denseUpperHeights = this.cols.map(c => c.denseUpperHeight());
 
         return {
             boardData,
             score: this.score,
             linesRemaining: this.linesRemaining(),
-            heights: [
-                ...heights,
-                ...sortedHeights,
-                ...denseLowerHeights,
-                ...denseUpperHeights,
-            ],
+            otherFeatures: [] as number[],
+            // otherFeatures: [
+            //     ...heights,
+            //     ...sortedHeights,
+            //     ...denseLowerHeights,
+            //     ...denseUpperHeights,
+            // ],
         };
+    }
+
+    maxHeight() {
+        return this.cols.map(c => c.height()).reduce((a, b) => Math.max(a, b));
     }
 
     toString(): string {
