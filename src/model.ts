@@ -16,11 +16,11 @@ export function createModel() {
         inputs.push(boardInput);
 
         // // Convolutional layers to process the input (board + boundary)
-        tensor = tf.layers.conv2d({ filters: 8, kernelSize: 4, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
-        tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor) as tf.SymbolicTensor;
+        tensor = tf.layers.conv2d({ filters: 4, kernelSize: 3, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
+        // tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor) as tf.SymbolicTensor;
 
-        tensor = tf.layers.conv2d({ filters: 4, kernelSize: 4, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
-        tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor) as tf.SymbolicTensor;
+        // tensor = tf.layers.conv2d({ filters: 4, kernelSize: 4, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
+        // tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor) as tf.SymbolicTensor;
 
         // Flatten and fully connected layers
         const flatten = tf.layers.flatten().apply(tensor) as tf.SymbolicTensor;

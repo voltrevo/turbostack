@@ -29,8 +29,7 @@ async function trainOnSavedData() {
         // Use the updated model to replace the training data
         boardEvaluator = createBoardEvaluator(model);
 
-        showPerformanceSummary(boardEvaluator);
-        console.log(`Training for ${((Date.now() - startTime) / 60_000).toFixed(1)} minutes`);
+        await showPerformanceSummary(Date.now() - startTime, boardEvaluator);
 
         await saveModel(model);
     }

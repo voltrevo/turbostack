@@ -1,9 +1,9 @@
-import { generateTrainingData, TrainingDataPair } from "../src/generateTrainingData";
+import { generateTrainingData } from "../src/generateTrainingData";
 import { createBoardEvaluator } from "../src/model";
 import { showPerformanceSummary } from "../src/showPerformanceSummary";
 import { trainModel } from "../src/train";
 import { TrainingDataSet } from "../src/TrainingDataSet";
-import { loadModel, loadTrainingData, saveModel, saveTrainingData } from "./helpers/modelStorage";
+import { loadModel, saveModel } from "./helpers/modelStorage";
 
 async function feedbackTraining() {
     const startTime = Date.now();
@@ -19,9 +19,9 @@ async function feedbackTraining() {
 
         console.log('generating training data');
         // Generate training data using the board evaluator
-        trainingData.keepRecent(1200);
+        trainingData.keepRecent(4000);
 
-        while (trainingData.size() < 1500) {
+        while (trainingData.size() < 5000) {
             trainingData.add(generateTrainingData(boardEvaluator, 100));
             console.log('trainingData.size()', trainingData.size());
         }
@@ -34,8 +34,7 @@ async function feedbackTraining() {
         // Use the updated model to replace the training data
         boardEvaluator = createBoardEvaluator(model);
 
-        showPerformanceSummary(boardEvaluator);
-        console.log(`Training for ${((Date.now() - startTime) / 60_000).toFixed(1)} minutes`);
+        await showPerformanceSummary(Date.now() - startTime, boardEvaluator);
 
         await saveModel(model);
     }

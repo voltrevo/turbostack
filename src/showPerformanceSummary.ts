@@ -1,10 +1,12 @@
 import { stdMaxLines } from "../programs/helpers/hyperParams";
+import { addPerfLog } from "../programs/helpers/modelStorage";
 import { Board } from "./Board";
 import { generateGameBoards } from "./generateGameBoards";
 import { BoardEvaluator } from "./generateTrainingData";
 import { WelfordCalculator } from "./WelfordCalculator";
 
-export function showPerformanceSummary(
+export async function showPerformanceSummary(
+    duration: number,
     boardEvaluator: BoardEvaluator,
 ) {
     const sample = getSampleBoard(boardEvaluator);
@@ -30,6 +32,11 @@ export function showPerformanceSummary(
 
     console.log(`Avg: ${Math.round(mean)} ± ${(100 * rel2StdevError).toFixed(1)}% (n=${calc.n})`);
     console.log(`Stdev: ${stdev}`);
+
+    const durationMinutes = (duration / 60_000).toFixed(1);
+    console.log(`Training for ${durationMinutes} minutes`);
+
+    await addPerfLog(durationMinutes, mean - 2 * metaStdev, mean + 2 * metaStdev);
 }
 
 function getSampleBoard(boardEvaluator: BoardEvaluator) {
