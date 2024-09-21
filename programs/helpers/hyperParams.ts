@@ -1,12 +1,12 @@
 // When generating training data, play to the end, then backtrack this number of moves
 export const boardGenBacktrackLen = {
-    min: 2,
-    max: 7,
+    min: 5,
+    max: 10,
 };
 
 // When playing to the end to determine the final score to use for training, play this many times
 // and average them
-export const nPlayoutsToAvg = 5;
+export const nPlayoutsToAvg = 1;
 
 export const stdMaxLines = 130;
 
@@ -17,7 +17,8 @@ export const artificialHeightLimit = Infinity;
 // When generating training data, how many deep samples and how many lookahead samples to generate
 // for each base game
 // (lookahead data is training the current board on the average eval of the next move)
-export const deepSamplesPerGame = 10;
+// TODO: These make less sense currently due to random play to seed the board
+export const deepSamplesPerGame = 1;
 export const lookaheadSamplesPerGame = 0;
 
 // Other than the board itself, how many features?

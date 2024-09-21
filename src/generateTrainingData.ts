@@ -1,5 +1,5 @@
 // Assuming Board, PieceType, and other necessary classes and functions are imported
-import { boardGenBacktrackLen, deepSamplesPerGame, lookaheadSamplesPerGame, stdMaxLines } from '../programs/helpers/hyperParams';
+import { boardGenBacktrackLen, deepSamplesPerGame, lookaheadSamplesPerGame, nPlayoutsToAvg, stdMaxLines } from '../programs/helpers/hyperParams';
 import { Board } from './Board';
 import { generateGameBoards } from './generateGameBoards';
 import { randomBoardEvaluator } from './model';
@@ -50,15 +50,18 @@ export function generateTrainingData(
         }
 
         for (let i = 0; i < deepSamplesPerGame; i++) {
-            // pick a random next move, play that, and train it
-            // (model is constantly asked to evaluate all the next choices, so we should train on that
-            // kind of thing as well as 'good' positions)
-            const randomChoice = choices[Math.floor(Math.random() * choices.length)];
-            const { finalScore } = generateGameBoards(randomChoice, boardEvaluator);
+            // // pick a random next move, play that, and train it
+            // // (model is constantly asked to evaluate all the next choices, so we should train on that
+            // // kind of thing as well as 'good' positions)
+            // const randomChoice = choices[Math.floor(Math.random() * choices.length)];
+            // const { finalScore } = generateGameBoards(randomChoice, boardEvaluator);
+            const { positions: newPositions, finalScore } = generateGameBoards(position, boardEvaluator);
+
+            const selPosition = newPositions[Math.floor(Math.random() * newPositions.length)];
 
             // Add the pair to the training data
             trainingData.push(augment({
-                board: randomChoice,
+                board: selPosition,
                 finalScore,
                 boardEvaluator,
             }));
@@ -66,11 +69,11 @@ export function generateTrainingData(
 
         for (let i = 0; i < lookaheadSamplesPerGame; i++) {
             // pick a random next move, play that, and train it
-            const randomChoice = choices[Math.floor(Math.random() * choices.length)];
+            // const randomChoice = choices[Math.floor(Math.random() * choices.length)];
 
             // Add the pair to the training data
             trainingData.push(augmentLookahead({
-                board: randomChoice,
+                board: position,
                 boardEvaluator,
             }));
         }
@@ -86,7 +89,7 @@ function augment({ board, finalScore, boardEvaluator }: {
 }): TrainingDataPair {
     const scores = [finalScore]
 
-    while (scores.length < 10) {
+    while (scores.length < nPlayoutsToAvg) {
         const { finalScore: another } = generateGameBoards(board, boardEvaluator);
         scores.push(another);
     }
