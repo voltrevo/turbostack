@@ -1,7 +1,7 @@
 import { generateTrainingData } from "../src/generateTrainingData";
 import { createBoardEvaluator } from "../src/model";
 import { TrainingDataSet } from "../src/TrainingDataSet";
-import { loadModel } from "./helpers/modelStorage";
+import { loadModel } from "../src/modelStorage";
 
 async function generateAndSaveTrainingData() {
     console.log('loading model');

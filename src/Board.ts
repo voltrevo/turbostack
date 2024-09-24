@@ -1,5 +1,5 @@
 // Import the necessary classes and enums from PieceType.ts
-import { extraFeatureLen, useCustomFeatures } from '../programs/helpers/hyperParams';
+import { extraFeatureLen, useCustomFeatures } from './hyperParams';
 import { grids, Piece, PieceType, RotateDir } from './PieceType';
 
 // Define BoardRow class

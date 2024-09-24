@@ -1,5 +1,5 @@
 // Assuming Board, PieceType, and other necessary classes and functions are imported
-import { boardGenBacktrackLen, deepSamplesPerGame, lookaheadSamplesPerGame, nPlayoutsToAvg, stdMaxLines } from '../programs/helpers/hyperParams';
+import { boardGenBacktrackLen, deepSamplesPerGame, lookaheadSamplesPerGame, nPlayoutsToAvg, stdMaxLines } from './hyperParams';
 import { Board } from './Board';
 import { generateGameBoards } from './generateGameBoards';
 import { randomBoardEvaluator } from './model';

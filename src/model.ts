@@ -1,6 +1,6 @@
 import * as tf from '@tensorflow/tfjs-node';
 import { Board } from './Board';
-import { extraFeatureLen, useBoard } from '../programs/helpers/hyperParams';
+import { extraFeatureLen, useBoard } from './hyperParams';
 import { BoardEvaluator } from './generateTrainingData';
 
 // type Tensorish = tf.SymbolicTensor | tf.Tensor<tf.Rank> | tf.Tensor<tf.Rank>[] | tf.SymbolicTensor[];

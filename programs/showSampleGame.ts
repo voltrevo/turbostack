@@ -1,8 +1,8 @@
 import { Board } from "../src/Board";
 import { generateGameBoards } from "../src/generateGameBoards";
 import { createBoardEvaluator } from "../src/model";
-import { boardGenBacktrackLen, stdMaxLines } from "./helpers/hyperParams";
-import { loadModel } from "./helpers/modelStorage";
+import { boardGenBacktrackLen, stdMaxLines } from "../src/hyperParams";
+import { loadModel } from "../src/modelStorage";
 
 async function showSampleGame() {
     const model = await loadModel();

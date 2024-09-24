@@ -2,7 +2,7 @@ import { createBoardEvaluator } from "../src/model";
 import { showPerformanceSummary } from "../src/showPerformanceSummary";
 import { trainModel } from "../src/train";
 import { TrainingDataSet } from "../src/TrainingDataSet";
-import { loadModel, saveModel } from "./helpers/modelStorage";
+import { loadModel, saveModel } from "../src/modelStorage";
 
 async function trainOnSavedData() {
     const startTime = Date.now();

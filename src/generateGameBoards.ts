@@ -1,4 +1,4 @@
-import { artificialHeightLimit } from "../programs/helpers/hyperParams";
+import { artificialHeightLimit } from "./hyperParams";
 import { Board } from "./Board";
 import { BoardEvaluator } from "./generateTrainingData";
 import { getRandomPieceType } from "./PieceType";

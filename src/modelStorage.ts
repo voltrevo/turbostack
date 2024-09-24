@@ -3,10 +3,10 @@ import path from 'path';
 
 import * as tf from '@tensorflow/tfjs-node';
 
-import { createModel, Model } from "../../src/model";
-import { TrainingDataPair } from '../../src/generateTrainingData';
-import { Board, BoardJson } from '../../src/Board';
-import { TrainingDataSet } from '../../src/TrainingDataSet';
+import { createModel, Model } from "./model";
+import { TrainingDataPair } from './generateTrainingData';
+import { Board, BoardJson } from './Board';
+import { TrainingDataSet } from './TrainingDataSet';
 
 const location = path.resolve(process.cwd(), 'data/model');
 

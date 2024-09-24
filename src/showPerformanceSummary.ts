@@ -1,5 +1,5 @@
-import { stdMaxLines } from "../programs/helpers/hyperParams";
-import { addPerfLog } from "../programs/helpers/modelStorage";
+import { stdMaxLines } from "./hyperParams";
+import { addPerfLog } from "./modelStorage";
 import { Board } from "./Board";
 import { generateGameBoards } from "./generateGameBoards";
 import { BoardEvaluator } from "./generateTrainingData";

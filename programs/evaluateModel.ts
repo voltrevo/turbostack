@@ -2,8 +2,8 @@ import { Board } from "../src/Board";
 import { generateGameBoards } from "../src/generateGameBoards";
 import { createBoardEvaluator } from "../src/model";
 import { WelfordCalculator } from "../src/WelfordCalculator";
-import { loadModel } from "./helpers/modelStorage";
-import { stdMaxLines } from "./helpers/hyperParams";
+import { loadModel } from "../src/modelStorage";
+import { stdMaxLines } from "../src/hyperParams";
 
 async function evaluateModel() {
     console.log('loading model');

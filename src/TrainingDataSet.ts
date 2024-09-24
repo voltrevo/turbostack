@@ -1,7 +1,7 @@
 import * as tf from '@tensorflow/tfjs-node';
 
-import { extraFeatureLen, useBoard, validationSplit } from "../programs/helpers/hyperParams";
-import { loadTrainingData, saveTrainingData } from "../programs/helpers/modelStorage";
+import { extraFeatureLen, useBoard, validationSplit } from "./hyperParams";
+import { loadTrainingData, saveTrainingData } from "./modelStorage";
 import { MlInputData } from "./Board";
 import { TrainingDataPair } from "./generateTrainingData";
 
