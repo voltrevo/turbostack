@@ -4,15 +4,10 @@ import { Board } from './Board';
 import { generateGameBoards } from './generateGameBoards';
 import { randomBoardEvaluator } from './randomBoardEvaluator';
 import { ALL_PIECE_TYPES, getRandomPieceType } from './PieceType';
+import { ScoreModelDataPoint } from './ScoreModel';
 
 // The evalBoard function predicts the final score from the given board
 export type BoardEvaluator = (boards: Board[]) => number[];
-
-// The output type of generateTrainingData
-export type TrainingDataPair = {
-    board: Board;
-    finalScore: number;
-};
 
 /**
  * Generates training data for machine learning.
@@ -20,11 +15,11 @@ export type TrainingDataPair = {
  * @param n - Number of games to simulate.
  * @returns Array of training data pairs (mlData, finalScore).
  */
-export function generateTrainingData(
+export function generateScoreTrainingData(
     boardEvaluator: BoardEvaluator,
     n: number,
-): TrainingDataPair[] {
-    const trainingData: TrainingDataPair[] = [];
+): ScoreModelDataPoint[] {
+    const trainingData: ScoreModelDataPoint[] = [];
 
     while (trainingData.length < n) {
         const { positions } = generateGameBoards(new Board(stdMaxLines), randomBoardEvaluator);
@@ -86,7 +81,7 @@ function augment({ board, finalScore, boardEvaluator }: {
     board: Board;
     finalScore: number;
     boardEvaluator: BoardEvaluator;
-}): TrainingDataPair {
+}): ScoreModelDataPoint {
     const scores = [finalScore]
 
     while (scores.length < nPlayoutsToAvg) {
@@ -105,7 +100,7 @@ function augment({ board, finalScore, boardEvaluator }: {
 function augmentLookahead({ board, boardEvaluator }: {
     board: Board;
     boardEvaluator: BoardEvaluator;
-}): TrainingDataPair {
+}): ScoreModelDataPoint {
     const scores = [];
 
     for (const p of ALL_PIECE_TYPES) {

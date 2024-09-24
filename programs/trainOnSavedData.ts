@@ -1,6 +1,6 @@
 import { ScoreModel } from "../src/ScoreModel";
 import { showPerformanceSummary } from "../src/showPerformanceSummary";
-import { TrainingDataSet } from "../src/TrainingDataSet";
+import { SplitDataSet } from "../src/SplitDataSet";
 
 async function trainOnSavedData() {
     const startTime = Date.now();
@@ -9,9 +9,9 @@ async function trainOnSavedData() {
     let model = await ScoreModel.load();
 
     console.log('loading training data');
-    const trainingData = await TrainingDataSet.load();
+    const trainingData = await ScoreModel.loadDataSet();
 
-    if (trainingData === undefined) {
+    if (trainingData.size() === 0) {
         throw new Error('Training data not found');
     }
 

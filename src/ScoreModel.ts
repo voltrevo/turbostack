@@ -3,9 +3,14 @@ import fs from 'fs/promises';
 import * as tf from '@tensorflow/tfjs-node';
 import { extraFeatureLen, useBoard } from './hyperParams';
 import { exists } from './exists';
-import { TrainingDataSet } from './TrainingDataSet';
-import { BoardEvaluator } from './generateTrainingData';
-import { Board } from './Board';
+import { SplitDataSet } from './SplitDataSet';
+import { BoardEvaluator } from './generateScoreTrainingData';
+import { Board, MlInputData } from './Board';
+
+export type ScoreModelDataPoint = {
+    board: Board;
+    finalScore: number;
+};
 
 export class ScoreModel {
     constructor(public tfModel: tf.LayersModel) {}
@@ -101,10 +106,11 @@ export class ScoreModel {
     }
 
     async train(
-        trainingData: TrainingDataSet,
+        trainingData: SplitDataSet<ScoreModelDataPoint>,
         epochs: number,
     ) {
-        const { data, valData } = trainingData.prepare();
+        const data = ScoreModel.prepareTrainingData(trainingData.data);
+        const valData = ScoreModel.prepareTrainingData(trainingData.valData);
     
         await this.tfModel.fit(data.xs, data.ys, {
             epochs,
@@ -155,5 +161,59 @@ export class ScoreModel {
             return Array.from(predictedRemainingScores)
                 .map((p, i) => boards[i].score + p); // add current score to remaining prediction
         };
+    }
+
+    static prepareTrainingData(trainingData: ScoreModelDataPoint[]) {
+        const boardData: MlInputData['boardData'][] = [];
+        const extraData: number[][] = [];
+        const labels: number[] = [];
+    
+        trainingData.forEach(({ board, finalScore }) => {
+            const { boardData: currBoardData, extraFeatures } = board.toMlInputData();
+    
+            // Use the board data directly, as it is already in the [row][column][channel] format
+            boardData.push(currBoardData);
+            extraData.push([...extraFeatures]);
+    
+            const scoreRemaining = finalScore - board.score
+            labels.push(scoreRemaining);
+        });
+    
+        const boardXs = tf.tensor(boardData).reshape([trainingData.length, 21, 12, 1]);
+        const extraXs = tf.tensor(extraData).reshape([trainingData.length, extraFeatureLen]);
+    
+        const xs = [];
+    
+        if (useBoard) {
+            xs.push(boardXs);
+        }
+    
+        xs.push(extraXs);
+    
+        return {
+            xs,
+            ys: tf.tensor(labels).reshape([trainingData.length, 1])
+        };
+    }
+
+    static dataSet(): SplitDataSet<ScoreModelDataPoint> {
+        return new SplitDataSet(
+            'scoreModelData',
+            ({ board, finalScore }) => ({
+                board: board.toJson(),
+                finalScore,
+            }),
+            ({ board, finalScore }: any) => ({
+                board: Board.fromJson(board),
+                finalScore: finalScore,
+            }),
+        );
+    }
+
+    static async loadDataSet(): Promise<SplitDataSet<ScoreModelDataPoint>> {
+        const dataSet = ScoreModel.dataSet();
+        await dataSet.load();
+
+        return dataSet;
     }
 }

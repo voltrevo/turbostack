@@ -1,7 +1,7 @@
-import { generateTrainingData } from "../src/generateTrainingData";
+import { generateScoreTrainingData } from "../src/generateScoreTrainingData";
 import { ScoreModel } from "../src/ScoreModel";
 import { showPerformanceSummary } from "../src/showPerformanceSummary";
-import { TrainingDataSet } from "../src/TrainingDataSet";
+import { SplitDataSet } from "../src/SplitDataSet";
 
 async function feedbackTraining() {
     const startTime = Date.now();
@@ -9,7 +9,7 @@ async function feedbackTraining() {
     console.log('loading model');
     let model = await ScoreModel.load();
 
-    let trainingData = await TrainingDataSet.load();
+    let trainingData = await ScoreModel.loadDataSet();
 
     while (true) {
         // Create a board evaluator using the blank model
@@ -20,7 +20,7 @@ async function feedbackTraining() {
         trainingData.keepRecent(4000);
 
         while (trainingData.size() < 5000) {
-            trainingData.add(generateTrainingData(boardEvaluator, 100));
+            trainingData.add(generateScoreTrainingData(boardEvaluator, 100));
             console.log('trainingData.size()', trainingData.size());
         }
 

@@ -1,12 +1,11 @@
-import { generateTrainingData } from "../src/generateTrainingData";
+import { generateScoreTrainingData } from "../src/generateScoreTrainingData";
 import { ScoreModel } from "../src/ScoreModel";
-import { TrainingDataSet } from "../src/TrainingDataSet";
 
 async function generateAndSaveTrainingData() {
     console.log('loading model');
     let model = await ScoreModel.load();
 
-    let trainingData = new TrainingDataSet();
+    let trainingData = ScoreModel.dataSet();
 
     // Create a board evaluator using the blank model
     let boardEvaluator = model.createBoardEvaluator();
@@ -15,7 +14,7 @@ async function generateAndSaveTrainingData() {
     // Generate training data using the board evaluator
 
     while (trainingData.size() < 5_000) {
-        trainingData.add(generateTrainingData(boardEvaluator, 100));
+        trainingData.add(generateScoreTrainingData(boardEvaluator, 100));
         console.log(`${trainingData.size()} / 5000`);
     }
 
