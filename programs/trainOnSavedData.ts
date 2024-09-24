@@ -1,14 +1,12 @@
-import { createBoardEvaluator } from "../src/model";
+import { ScoreModel } from "../src/ScoreModel";
 import { showPerformanceSummary } from "../src/showPerformanceSummary";
-import { trainModel } from "../src/train";
 import { TrainingDataSet } from "../src/TrainingDataSet";
-import { loadModel, saveModel } from "../src/modelStorage";
 
 async function trainOnSavedData() {
     const startTime = Date.now();
 
     console.log('loading model');
-    let model = await loadModel();
+    let model = await ScoreModel.load();
 
     console.log('loading training data');
     const trainingData = await TrainingDataSet.load();
@@ -18,20 +16,20 @@ async function trainOnSavedData() {
     }
 
     // Create a board evaluator using the blank model
-    let boardEvaluator = createBoardEvaluator(model);
+    let boardEvaluator = model.createBoardEvaluator();
 
     while (true) {
         const sampleTrainingData = trainingData.sample(10_000);
 
         // Train the model on the training data
-        model = await trainModel(model, sampleTrainingData, 10);
+        await model.train(sampleTrainingData, 10);
 
         // Use the updated model to replace the training data
-        boardEvaluator = createBoardEvaluator(model);
+        boardEvaluator = model.createBoardEvaluator();
 
         await showPerformanceSummary(Date.now() - startTime, boardEvaluator);
 
-        await saveModel(model);
+        await model.save();
     }
 }
 

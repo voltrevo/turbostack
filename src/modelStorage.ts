@@ -3,41 +3,12 @@ import fsClassic from 'fs';
 
 import * as tf from '@tensorflow/tfjs-node';
 
-import { createModel, Model } from "./model";
 import { TrainingDataPair } from './generateTrainingData';
 import { Board, BoardJson } from './Board';
 import { TrainingDataSet } from './TrainingDataSet';
+import { exists } from './exists';
 
 fsClassic.mkdirSync('data', { recursive: true });
-
-export async function loadModel(): Promise<Model> {
-    if (!(await exists('data/model'))) {
-        return createModel();
-    }
-
-    const model = await tf.loadLayersModel('file://data/model/model.json');
-
-    model.compile({
-        optimizer: 'adam',
-        loss: 'meanSquaredError'
-    });
-
-    return model;
-}
-
-export async function saveModel(model: Model) {
-    await fs.mkdir('data/model', { recursive: true });
-    await model.save('file://data/model');
-}
-
-async function exists(path: string) {
-    try {
-        await fs.stat(path);
-        return true;
-    } catch {
-        return false;
-    }
-}
 
 export async function saveTrainingData(trainingDataSet: TrainingDataSet) {
     const toSaveFmt = (data: TrainingDataPair[]) => data.map(

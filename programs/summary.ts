@@ -1,3 +1,3 @@
-import { createModel } from "../src/model";
+import { ScoreModel } from "../src/ScoreModel";
 
-createModel();
+ScoreModel.create();

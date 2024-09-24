@@ -1,8 +1,8 @@
 // Assuming Board, PieceType, and other necessary classes and functions are imported
-import { boardGenBacktrackLen, deepSamplesPerGame, lookaheadSamplesPerGame, nPlayoutsToAvg, stdMaxLines } from './hyperParams';
+import { deepSamplesPerGame, lookaheadSamplesPerGame, nPlayoutsToAvg, stdMaxLines } from './hyperParams';
 import { Board } from './Board';
 import { generateGameBoards } from './generateGameBoards';
-import { randomBoardEvaluator } from './model';
+import { randomBoardEvaluator } from './randomBoardEvaluator';
 import { ALL_PIECE_TYPES, getRandomPieceType } from './PieceType';
 
 // The evalBoard function predicts the final score from the given board
@@ -33,23 +33,15 @@ export function generateTrainingData(
             throw new Error('Should not be possible');
         }
 
-        const backtrackLen = (
-            boardGenBacktrackLen.min +
-            Math.floor(Math.random() * (
-                boardGenBacktrackLen.max - boardGenBacktrackLen.min
-            ))
-        );
-
-        const positionIndex = Math.max(0, positions.length - backtrackLen);
-        const position = positions[positionIndex];
-
-        const choices = position.findChoices(getRandomPieceType());
-
-        if (choices.length === 0) {
-            continue;
-        }
-
         for (let i = 0; i < deepSamplesPerGame; i++) {
+            const position = positions[Math.floor(Math.random() * positions.length)];
+
+            const choices = position.findChoices(getRandomPieceType());
+    
+            if (choices.length === 0) {
+                continue;
+            }
+
             // // pick a random next move, play that, and train it
             // // (model is constantly asked to evaluate all the next choices, so we should train on that
             // // kind of thing as well as 'good' positions)
@@ -68,6 +60,14 @@ export function generateTrainingData(
         }
 
         for (let i = 0; i < lookaheadSamplesPerGame; i++) {
+            const position = positions[Math.floor(Math.random() * positions.length)];
+
+            const choices = position.findChoices(getRandomPieceType());
+    
+            if (choices.length === 0) {
+                continue;
+            }
+
             // pick a random next move, play that, and train it
             // const randomChoice = choices[Math.floor(Math.random() * choices.length)];
 

@@ -1,16 +1,15 @@
 import { generateTrainingData } from "../src/generateTrainingData";
-import { createBoardEvaluator } from "../src/model";
+import { ScoreModel } from "../src/ScoreModel";
 import { TrainingDataSet } from "../src/TrainingDataSet";
-import { loadModel } from "../src/modelStorage";
 
 async function generateAndSaveTrainingData() {
     console.log('loading model');
-    let model = await loadModel();
+    let model = await ScoreModel.load();
 
     let trainingData = new TrainingDataSet();
 
     // Create a board evaluator using the blank model
-    let boardEvaluator = createBoardEvaluator(model);
+    let boardEvaluator = model.createBoardEvaluator();
 
     console.log('generating training data');
     // Generate training data using the board evaluator

@@ -1,18 +1,16 @@
 import { Board } from "../src/Board";
 import { generateGameBoards } from "../src/generateGameBoards";
-import { createBoardEvaluator } from "../src/model";
 import { WelfordCalculator } from "../src/WelfordCalculator";
-import { loadModel } from "../src/modelStorage";
 import { stdMaxLines } from "../src/hyperParams";
+import { ScoreModel } from "../src/ScoreModel";
 
 async function evaluateModel() {
     console.log('loading model');
-    let model = await loadModel();
+    let model = await ScoreModel.load();
 
     const calc = new WelfordCalculator();
 
-    // Create a board evaluator using the blank model
-    let boardEvaluator = createBoardEvaluator(model);
+    let boardEvaluator = model.createBoardEvaluator();
 
     while (true) {
         for (let i = 0; i < 100; i++) {

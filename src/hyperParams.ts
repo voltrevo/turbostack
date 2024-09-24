@@ -1,9 +1,3 @@
-// When generating training data, play to the end, then backtrack this number of moves
-export const boardGenBacktrackLen = {
-    min: 5,
-    max: 10,
-};
-
 // When playing to the end to determine the final score to use for training, play this many times
 // and average them
 export const nPlayoutsToAvg = 1;
@@ -12,7 +6,7 @@ export const stdMaxLines = 130;
 
 // Note: there are also hardcoded per-column limits in Board.ts (expressed as minI instead of height, sorry)
 // (Both sets of limits will apply, so the lower height limit for each column will be the effective limit)
-export const artificialHeightLimit = Infinity;
+export const artificialHeightLimit = 15;
 
 // When generating training data, how many deep samples and how many lookahead samples to generate
 // for each base game

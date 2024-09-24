@@ -1,28 +1,18 @@
 import { Board } from "../src/Board";
 import { generateGameBoards } from "../src/generateGameBoards";
-import { createBoardEvaluator } from "../src/model";
-import { boardGenBacktrackLen, stdMaxLines } from "../src/hyperParams";
-import { loadModel } from "../src/modelStorage";
+import { stdMaxLines } from "../src/hyperParams";
+import { ScoreModel } from "../src/ScoreModel";
 
 async function showSampleGame() {
-    const model = await loadModel();
+    const model = await ScoreModel.load();
 
-    const { positions: startBoards } = generateGameBoards(new Board(stdMaxLines), createBoardEvaluator(model));
-
-    const backtrackLen = (
-        boardGenBacktrackLen.min +
-        Math.floor(Math.random() * (
-            boardGenBacktrackLen.max - boardGenBacktrackLen.min
-        ))
+    const { positions } = generateGameBoards(
+        new Board(stdMaxLines),
+        model.createBoardEvaluator(),
     );
 
-    const startBoardsIndex = Math.max(0, startBoards.length - backtrackLen);
-    const startBoard = startBoards[startBoardsIndex];
-
-    const { positions: boards } = generateGameBoards(startBoard, createBoardEvaluator(model));
-
-    for (let i = 1; i < boards.length; i++) {
-        console.log(i, boards[i].toStringDiff(boards[i - 1]));
+    for (let i = 1; i < positions.length; i++) {
+        console.log(i, positions[i].toStringDiff(positions[i - 1]));
     }
 }
 
