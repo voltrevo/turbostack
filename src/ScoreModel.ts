@@ -4,8 +4,8 @@ import * as tf from '@tensorflow/tfjs-node';
 import { extraFeatureLen, useBoard } from './hyperParams';
 import { exists } from './exists';
 import { SplitDataSet } from './SplitDataSet';
-import { BoardEvaluator } from './generateScoreTrainingData';
 import { Board, MlInputData } from './Board';
+import { BoardEvaluator } from './BoardEvaluator';
 
 export type ScoreModelDataPoint = {
     board: Board;

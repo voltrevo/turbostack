@@ -1,7 +1,7 @@
 import { artificialHeightLimit } from "./hyperParams";
 import { Board } from "./Board";
-import { BoardEvaluator } from "./generateScoreTrainingData";
 import { getRandomPieceType } from "./PieceType";
+import { BoardEvaluator } from "./BoardEvaluator";
 
 export function generateGameBoards(board: Board, boardEvaluator: BoardEvaluator) {
     const positions: Board[] = [];

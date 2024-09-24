@@ -2,8 +2,8 @@ import { stdMaxLines } from "./hyperParams";
 import { addPerfLog } from "./addPerfLog";
 import { Board } from "./Board";
 import { generateGameBoards } from "./generateGameBoards";
-import { BoardEvaluator } from "./generateScoreTrainingData";
 import { WelfordCalculator } from "./WelfordCalculator";
+import { BoardEvaluator } from "./BoardEvaluator";
 
 export async function showPerformanceSummary(
     duration: number,

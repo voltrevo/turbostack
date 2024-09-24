@@ -5,9 +5,7 @@ import { generateGameBoards } from './generateGameBoards';
 import { randomBoardEvaluator } from './randomBoardEvaluator';
 import { ALL_PIECE_TYPES, getRandomPieceType } from './PieceType';
 import { ScoreModelDataPoint } from './ScoreModel';
-
-// The evalBoard function predicts the final score from the given board
-export type BoardEvaluator = (boards: Board[]) => number[];
+import { BoardEvaluator } from './BoardEvaluator';
 
 /**
  * Generates training data for machine learning.
