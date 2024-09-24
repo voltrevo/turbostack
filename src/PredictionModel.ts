@@ -158,7 +158,7 @@ export class PredictionModel {
     }
 
     static prepareTrainingData(trainingData: PredictionModelDataPoint[]) {
-        const xs: unknown[][] = [...new Array(evalNodeCount)].map(() => []);
+        const xs: unknown[][] = [...new Array(2 * evalNodeCount)].map(() => []);
         const ys: number[][] = [];
 
         for (let { from, to } of trainingData) {
@@ -255,13 +255,20 @@ function detectPiece({ from, to }: PredictionModelDataPoint) {
 
     for (let pieceIndex = 0; pieceIndex < detectPieceStaticData.length; pieceIndex++) {
         for (const piecePattern of detectPieceStaticData[pieceIndex]) {
+            let match = true;
+
             for (let x = 0; x < 3; x++) {
                 if (
-                    relPositions[x].i === piecePattern[x].i &&
-                    relPositions[x].j === piecePattern[x].j
+                    relPositions[x].i !== piecePattern[x].i ||
+                    relPositions[x].j !== piecePattern[x].j
                 ) {
-                    return ALL_PIECE_TYPES[pieceIndex];
+                    match = false;
+                    break;
                 }
+            }
+
+            if (match) {
+                return ALL_PIECE_TYPES[pieceIndex];
             }
         }
     }

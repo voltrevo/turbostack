@@ -8,7 +8,8 @@ async function trainOnSavedData() {
     let model = await PredictionModel.load();
 
     console.log('loading training data');
-    const trainingData = await PredictionModel.loadDataSet();
+    let trainingData = await PredictionModel.loadDataSet();
+    trainingData = trainingData.sample(1000);
 
     if (trainingData.size() === 0) {
         throw new Error('Training data not found');
