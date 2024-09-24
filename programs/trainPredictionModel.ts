@@ -1,7 +1,7 @@
 import { PredictionModel } from "../src/PredictionModel";
 import { showPerformanceSummary } from "../src/showPerformanceSummary";
 
-async function trainOnSavedData() {
+async function trainPredictionModel() {
     const startTime = Date.now();
 
     console.log('loading model');
@@ -29,4 +29,4 @@ async function trainOnSavedData() {
     await model.save();
 }
 
-trainOnSavedData().catch(console.error);
+trainPredictionModel().catch(console.error);

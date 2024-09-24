@@ -1,10 +1,10 @@
 import { Board } from "../src/Board";
 import { generateGameBoards } from "../src/generateGameBoards";
 import { stdMaxLines } from "../src/hyperParams";
-import { ScoreModel } from "../src/ScoreModel";
+import { PredictionModel } from "../src/PredictionModel";
 
 async function showSampleGame() {
-    const model = await ScoreModel.load();
+    const model = await PredictionModel.load();
 
     const { positions } = generateGameBoards(
         new Board(stdMaxLines),
