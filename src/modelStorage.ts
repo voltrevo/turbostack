@@ -1,5 +1,5 @@
 import fs from 'fs/promises';
-import path from 'path';
+import fsClassic from 'fs';
 
 import * as tf from '@tensorflow/tfjs-node';
 
@@ -8,14 +8,14 @@ import { TrainingDataPair } from './generateTrainingData';
 import { Board, BoardJson } from './Board';
 import { TrainingDataSet } from './TrainingDataSet';
 
-const location = path.resolve(process.cwd(), 'data/model');
+fsClassic.mkdirSync('data', { recursive: true });
 
 export async function loadModel(): Promise<Model> {
-    if (!(await exists(location))) {
+    if (!(await exists('data/model'))) {
         return createModel();
     }
 
-    const model = await tf.loadLayersModel('file://' + location + '/model.json');
+    const model = await tf.loadLayersModel('file://data/model/model.json');
 
     model.compile({
         optimizer: 'adam',
@@ -26,8 +26,8 @@ export async function loadModel(): Promise<Model> {
 }
 
 export async function saveModel(model: Model) {
-    await fs.mkdir(location, { recursive: true });
-    await model.save('file://' + location);
+    await fs.mkdir('data/model', { recursive: true });
+    await model.save('file://data/model');
 }
 
 async function exists(path: string) {
