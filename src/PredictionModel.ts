@@ -4,7 +4,7 @@ import * as tf from '@tensorflow/tfjs-node';
 import { evalNodeCount, extraFeatureLen, useBoard } from './hyperParams';
 import { exists } from './exists';
 import { SplitDataSet } from './SplitDataSet';
-import { Board, MlInputData } from './Board';
+import { Board } from './Board';
 import { BoardEvaluator } from './BoardEvaluator';
 import { ALL_PIECE_TYPES, PIECE_GRIDS } from './PieceType';
 
@@ -284,7 +284,7 @@ const detectPieceStaticData = (() => ALL_PIECE_TYPES.map(
                     } else {
                         relPositions.push({
                             i: i - start.i,
-                            j: j = start.j,
+                            j: j - start.j,
                         });
                     }
                 }
