@@ -479,7 +479,7 @@ export class Board {
 
         boardData.push([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1].map(x => [x]))
 
-        const extraFeatures = [this.linesRemaining()];
+        const extraFeatures = [this.linesRemaining(), this.score];
 
         if (useCustomFeatures) {
             const heights = this.cols.map(c => c.height());
