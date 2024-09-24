@@ -235,14 +235,14 @@ function detectPiece({ from, to }: PredictionModelDataPoint) {
     const relPositions = [];
 
     for (let i = 0; i < 20; i++) {
-        for (let j = 0; j < 20; j++) {
+        for (let j = 0; j < 10; j++) {
             if (to.get(i, j) && !from.get(i, j)) {
                 if (start === undefined) {
                     start = { i, j };
                 } else {
                     relPositions.push({
                         i: i - start.i,
-                        j: j = start.j,
+                        j: j - start.j,
                     });
                 }
             }
@@ -250,7 +250,7 @@ function detectPiece({ from, to }: PredictionModelDataPoint) {
     }
 
     if (relPositions.length !== 3) {
-        throw new Error('Failed to find 4 blocks in tetromino');
+        throw new Error(`Failed to find 4 blocks in tetromino`);
     }
 
     for (let pieceIndex = 0; pieceIndex < detectPieceStaticData.length; pieceIndex++) {
