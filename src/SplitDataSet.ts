@@ -39,12 +39,9 @@ export class SplitDataSet<T> {
         const valSize = Math.ceil(size * validationSplit);
         const dataSize = size - valSize;
 
-        const valOffset = Math.floor(Math.random() * (this.valData.length - valSize));
-        const dataOffset = Math.floor(Math.random() * (this.data.length - dataSize));
-
         const res = new SplitDataSet(undefined, this.toSaveFmt, this.fromSaveFmt);
-        res.data = this.data.slice(dataOffset, dataOffset + dataSize);
-        res.valData = this.valData.slice(valOffset, valOffset + valSize);
+        res.data = shuffle(this.data, dataSize);
+        res.valData = shuffle(this.valData, valSize);
 
         return res;
     }
@@ -99,4 +96,17 @@ export class SplitDataSet<T> {
             this.valData = saved.valData;
         }
     }
+}
+
+function shuffle<T>(arr: T[], size: number) {
+    arr = arr.slice();
+
+    for (let i = 0; i < size; i++) {
+        const j = Math.floor(Math.random() * (arr.length - i)) + i;
+        const tmp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = tmp;
+    }
+
+    return arr.slice(0, size);
 }
