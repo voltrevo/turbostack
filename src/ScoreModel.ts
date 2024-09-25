@@ -127,6 +127,14 @@ export class ScoreModel {
         console.log("Training complete.");
     }
 
+    calculateValLoss(trainingData: SplitDataSet<ScoreModelDataPoint>) {
+        const valData = ScoreModel.prepareTrainingData(trainingData.valData);
+        const predictions = this.tfModel.predict(valData.xs) as tf.Tensor;
+        const valLoss = tf.metrics.meanSquaredError(valData.ys, predictions).sum().dataSync()[0];
+    
+        return valLoss / valData.xs[0].shape[0];
+    }
+
     createBoardEvaluator(): BoardEvaluator {
         return (boards: Board[]): number[] => {
             const mlInputData = boards.map(b => b.toMlInputData());

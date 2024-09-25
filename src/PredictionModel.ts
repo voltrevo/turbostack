@@ -22,7 +22,7 @@ export class PredictionModel {
         public combinedModel: tf.LayersModel,
     ) {
         combinedModel.compile({
-            optimizer: tf.train.adam(0.00002),
+            optimizer: tf.train.adam(0.0001),
             loss: 'categoricalCrossentropy',
         });
     }
@@ -34,13 +34,16 @@ export class PredictionModel {
         let tensor = tf.layers.conv2d({
             filters: 8,
             kernelSize: [5, 3],
-            activation: 'relu',
         }).apply(boardInput) as tf.SymbolicTensor;
+
+        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
 
         tensor = tf.layers.conv2d({
             filters: 16,
             kernelSize: [1, 10],
         }).apply(tensor) as tf.SymbolicTensor;
+
+        // tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
 
         tensor = tf.layers.flatten().apply(tensor) as tf.SymbolicTensor;
 
@@ -51,8 +54,9 @@ export class PredictionModel {
 
         tensor = tf.layers.dense({
             units: 16,
-            activation: 'relu',
         }).apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
 
         // tensor = tf.layers.dense({
         //     units: 8,
@@ -63,8 +67,9 @@ export class PredictionModel {
 
         tensor = tf.layers.dense({
             units: 1,
-            activation: 'relu',
         }).apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
 
         const model = tf.model({ inputs: [boardInput, paramsInput], outputs: tensor });
 
@@ -133,6 +138,14 @@ export class PredictionModel {
         });
     
         console.log("Training complete.");
+    }
+
+    calculateValLoss(trainingData: SplitDataSet<PredictionModelDataPoint>) {
+        const valData = PredictionModel.prepareTrainingData(trainingData.valData);
+        const predictions = this.combinedModel.predict(valData.xs) as tf.Tensor;
+        const valLoss = tf.metrics.categoricalCrossentropy(valData.ys, predictions).sum().dataSync()[0];
+
+        return valLoss / valData.xs[0].shape[0];
     }
 
     createBoardEvaluator(): BoardEvaluator {

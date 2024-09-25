@@ -1,6 +1,5 @@
 import { ScoreModel } from "../src/ScoreModel";
 import { showPerformanceSummary } from "../src/showPerformanceSummary";
-import { SplitDataSet } from "../src/SplitDataSet";
 
 async function trainOnSavedData() {
     const startTime = Date.now();
@@ -27,7 +26,11 @@ async function trainOnSavedData() {
         // Use the updated model to replace the training data
         boardEvaluator = model.createBoardEvaluator();
 
-        await showPerformanceSummary(Date.now() - startTime, boardEvaluator);
+        await showPerformanceSummary(
+            Date.now() - startTime,
+            model.calculateValLoss(trainingData),
+            boardEvaluator,
+        );
 
         await model.save();
     }

@@ -9,6 +9,7 @@ async function trainPredictionModel() {
 
     console.log('loading training data');
     let trainingData = await PredictionModel.loadDataSet();
+    console.log('valLoss:', model.calculateValLoss(trainingData));
 
     while (true) {
         const currTrainingData = trainingData.sample(2000);
@@ -27,6 +28,7 @@ async function trainPredictionModel() {
 
         await showPerformanceSummary(
             Date.now() - startTime,
+            model.calculateValLoss(trainingData),
             model.createBoardEvaluator(),
         );
 

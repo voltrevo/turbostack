@@ -7,6 +7,7 @@ import { BoardEvaluator } from "./BoardEvaluator";
 
 export async function showPerformanceSummary(
     duration: number,
+    valLoss: number,
     boardEvaluator: BoardEvaluator,
 ) {
     const sample = getSampleBoard(boardEvaluator);
@@ -14,6 +15,8 @@ export async function showPerformanceSummary(
     console.log('Prediction for sample above:', boardEvaluator([sample]));
 
     console.log('Game start prediction:', boardEvaluator([new Board(stdMaxLines)]));
+
+    console.log('Validation loss:', valLoss);
 
     const calc = new WelfordCalculator();
 
@@ -36,7 +39,7 @@ export async function showPerformanceSummary(
     const durationMinutes = (duration / 60_000).toFixed(1);
     console.log(`Training for ${durationMinutes} minutes`);
 
-    await addPerfLog(durationMinutes, mean - 2 * metaStdev, mean + 2 * metaStdev);
+    await addPerfLog(durationMinutes, valLoss, mean - 2 * metaStdev, mean + 2 * metaStdev);
 }
 
 function getSampleBoard(boardEvaluator: BoardEvaluator) {
