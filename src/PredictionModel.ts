@@ -33,13 +33,13 @@ export class PredictionModel {
 
         let tensor = tf.layers.conv2d({
             filters: 8,
-            kernelSize: 4,
+            kernelSize: [5, 3],
             activation: 'relu',
         }).apply(boardInput) as tf.SymbolicTensor;
 
         tensor = tf.layers.conv2d({
             filters: 16,
-            kernelSize: [1, 9],
+            kernelSize: [1, 10],
         }).apply(tensor) as tf.SymbolicTensor;
 
         tensor = tf.layers.flatten().apply(tensor) as tf.SymbolicTensor;
