@@ -117,10 +117,10 @@ export class PredictionModel {
             batchSize: 32,
             validationData: [valData.xs, valData.ys],
             callbacks: [
-                // tf.callbacks.earlyStopping({
-                //     monitor: 'val_loss',
-                //     patience: 50,
-                // }),
+                tf.callbacks.earlyStopping({
+                    monitor: 'val_loss',
+                    patience: 10,
+                }),
             ],
         });
     
