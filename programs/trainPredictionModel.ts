@@ -9,24 +9,29 @@ async function trainPredictionModel() {
 
     console.log('loading training data');
     let trainingData = await PredictionModel.loadDataSet();
-    trainingData = trainingData.sample(1000);
 
-    if (trainingData.size() === 0) {
-        throw new Error('Training data not found');
+    while (true) {
+        const currTrainingData = trainingData.sample(2000);
+
+        if (currTrainingData.size() === 0) {
+            throw new Error('Training data not found');
+        }
+
+        try {
+            // Train the model on the training data
+            await model.train(currTrainingData, 100);
+        } catch (e) {
+            console.error(e);
+            continue;
+        }
+
+        await showPerformanceSummary(
+            Date.now() - startTime,
+            model.createBoardEvaluator(),
+        );
+
+        await model.save();
     }
-
-    // Create a board evaluator using the blank model
-    let boardEvaluator = model.createBoardEvaluator();
-
-    // Train the model on the training data
-    await model.train(trainingData, 200);
-
-    // Use the updated model to replace the training data
-    boardEvaluator = model.createBoardEvaluator();
-
-    await showPerformanceSummary(Date.now() - startTime, boardEvaluator);
-
-    await model.save();
 }
 
 trainPredictionModel().catch(console.error);

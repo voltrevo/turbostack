@@ -23,7 +23,7 @@ export class PredictionModel {
     ) {
         combinedModel.compile({
             optimizer: 'adam',
-            loss: 'meanSquaredError'
+            loss: 'categoricalCrossentropy',
         });
     }
 
@@ -51,7 +51,7 @@ export class PredictionModel {
             activation: 'relu',
         }).apply(tensor) as tf.SymbolicTensor;
 
-        tensor = tf.layers.dropout({ rate: 0.5 }).apply(tensor) as tf.SymbolicTensor;
+        // tensor = tf.layers.dropout({ rate: 0.2 }).apply(tensor) as tf.SymbolicTensor;
 
         tensor = tf.layers.dense({
             units: 1,
@@ -117,10 +117,10 @@ export class PredictionModel {
             batchSize: 32,
             validationData: [valData.xs, valData.ys],
             callbacks: [
-                tf.callbacks.earlyStopping({
-                    monitor: 'val_loss',
-                    patience: 20,
-                }),
+                // tf.callbacks.earlyStopping({
+                //     monitor: 'val_loss',
+                //     patience: 50,
+                // }),
             ],
         });
     
