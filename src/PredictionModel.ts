@@ -44,7 +44,10 @@ export class PredictionModel {
 
         tensor = tf.layers.flatten().apply(tensor) as tf.SymbolicTensor;
 
-        tensor = tf.layers.concatenate().apply([tensor, paramsInput]) as tf.SymbolicTensor;
+        tensor = tf.layers.concatenate().apply([
+            tensor,
+            paramsInput,
+        ]) as tf.SymbolicTensor;
 
         tensor = tf.layers.dense({
             units: 16,
