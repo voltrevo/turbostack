@@ -161,7 +161,7 @@ export class PredictionModel {
             const mlInputData = boards.map(b => b.toMlInputData());
 
             // Extract boards, scores, and lines remaining from the input boards
-            const boardData: number[][][] = mlInputData.map(d => d.boardData);
+            const boardData: Uint8Array[] = mlInputData.map(d => d.boardData);
             const extraData: number[][] = mlInputData.map(d => [...d.extraFeatures]);
 
             // Prepare tensors for the model
@@ -169,7 +169,7 @@ export class PredictionModel {
 
             inputTensors.push(
                 // Shape: [batchSize, rows, cols, channels]
-                tf.tensor(boardData).reshape([boards.length, 21, 12]),
+                tf.tensor(boardData).reshape([boards.length, 21, 12, 1]),
             );
 
             inputTensors.push(

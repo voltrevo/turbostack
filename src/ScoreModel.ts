@@ -140,7 +140,7 @@ export class ScoreModel {
             const mlInputData = boards.map(b => b.toMlInputData());
 
             // Extract boards, scores, and lines remaining from the input boards
-            const boardData: number[][][] = mlInputData.map(d => d.boardData);
+            const boardData: Uint8Array[] = mlInputData.map(d => d.boardData);
             const extraData: number[][] = mlInputData.map(d => [...d.extraFeatures]);
 
             // Prepare tensors for the model

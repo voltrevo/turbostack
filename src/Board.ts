@@ -36,18 +36,6 @@ class BoardRow {
         newRow.value = this.value;
         return newRow;
     }
-
-    toMlInputData() {
-        const res: number[] = [1];
-
-        for (let j = 0; j < 10; j++) {
-            res.push(this.get(j) ? 1 : 0);
-        }
-
-        res.push(1);
-
-        return res;
-    }
 }
 
 // Define BoardCol class
@@ -465,11 +453,21 @@ export class Board {
     }
 
     toMlInputData() {
-        const boardData = this.rows.map(
-            r => r.toMlInputData(),
-        );
+        const boardData = new Uint8Array(21 * 12);
 
-        boardData.push([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
+        for (let i = 0; i < 20; i++) {
+            boardData[i * 12 + 0] = 1;
+
+            for (let j = 0; j < 10; j++) {
+                boardData[i * 12 + j + 1] = this.get(i, j) ? 1 : 0;
+            }
+
+            boardData[i * 12 + 11] = 1;
+        }
+
+        for (let j = 0; j < 12; j++) {
+            boardData[20 * 12 + j] = 1;
+        }
 
         const extraFeatures = [this.linesRemaining(), this.score];
 
