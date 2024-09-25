@@ -12,7 +12,7 @@ async function trainPredictionModel() {
     console.log('valLoss:', model.calculateValLoss(trainingData));
 
     while (true) {
-        const currTrainingData = trainingData.sample(2000);
+        const currTrainingData = trainingData; //.sample(2000);
 
         if (currTrainingData.size() === 0) {
             throw new Error('Training data not found');
