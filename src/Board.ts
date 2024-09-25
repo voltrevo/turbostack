@@ -466,18 +466,10 @@ export class Board {
 
     toMlInputData() {
         const boardData = this.rows.map(
-            (r, i) => r.toMlInputData().map(
-                (c, j) => [
-                    // cell data
-                    c,
-
-                    // boundary data
-                    // (i === 0 || i === 19 || j === 0 || j === 9) ? 1 : 0,
-                ],
-            ),
+            r => r.toMlInputData(),
         );
 
-        boardData.push([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1].map(x => [x]))
+        boardData.push([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
 
         const extraFeatures = [this.linesRemaining(), this.score];
 
@@ -503,7 +495,6 @@ export class Board {
 
         return {
             boardData,
-            score: this.score,
             extraFeatures,
         };
     }

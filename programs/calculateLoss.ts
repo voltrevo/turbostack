@@ -4,6 +4,7 @@ async function calculateValLoss() {
     console.log('loading model');
     let model = await PredictionModel.load();
     let trainingData = await PredictionModel.loadDataSet();
+    console.log('loss:', model.calculateLoss(trainingData));
     console.log('valLoss:', model.calculateValLoss(trainingData));
 }
 

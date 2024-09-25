@@ -28,8 +28,8 @@ export class PredictionModel {
     }
 
     static createEvalModel(): tf.LayersModel {
-        const boardInput = tf.input({ shape: [21, 12, 1] });
-        const paramsInput = tf.input({ shape: [extraFeatureLen] });
+        const boardInput = tf.input({ shape: spatialShape });
+        const paramsInput = tf.input({ shape: extraShape });
 
         let tensor = tf.layers.conv2d({
             filters: 8,
@@ -140,6 +140,14 @@ export class PredictionModel {
         console.log("Training complete.");
     }
 
+    calculateLoss(trainingData: SplitDataSet<PredictionModelDataPoint>) {
+        const data = PredictionModel.prepareTrainingData(trainingData.data);
+        const predictions = this.combinedModel.predict(data.xs) as tf.Tensor;
+        const loss = tf.metrics.categoricalCrossentropy(data.ys, predictions).sum().dataSync()[0];
+
+        return loss / data.xs[0].shape[0];
+    }
+
     calculateValLoss(trainingData: SplitDataSet<PredictionModelDataPoint>) {
         const valData = PredictionModel.prepareTrainingData(trainingData.valData);
         const predictions = this.combinedModel.predict(valData.xs) as tf.Tensor;
@@ -153,7 +161,7 @@ export class PredictionModel {
             const mlInputData = boards.map(b => b.toMlInputData());
 
             // Extract boards, scores, and lines remaining from the input boards
-            const boardData: number[][][][] = mlInputData.map(d => d.boardData);
+            const boardData: number[][][] = mlInputData.map(d => d.boardData);
             const extraData: number[][] = mlInputData.map(d => [...d.extraFeatures]);
 
             // Prepare tensors for the model
@@ -161,7 +169,7 @@ export class PredictionModel {
 
             inputTensors.push(
                 // Shape: [batchSize, rows, cols, channels]
-                tf.tensor(boardData).reshape([boards.length, 21, 12, 1]),
+                tf.tensor(boardData).reshape([boards.length, 21, 12]),
             );
 
             inputTensors.push(
@@ -226,8 +234,8 @@ export class PredictionModel {
         return {
             xs: xs.map((x, i) => tf.tensor(x as any).reshape(
                 i % 2 === 0
-                    ? [len, 21, 12, 1]
-                    : [len, extraFeatureLen]
+                    ? [len, ...spatialShape]
+                    : [len, ...extraShape]
             )),
             ys: tf.tensor(ys).reshape([len, evalNodeCount]),
         };
