@@ -26,7 +26,7 @@ async function evaluateModel() {
         // more than well enough for our purposes
         const rel2StdevError = 2 * metaStdev / mean;
 
-        console.log(`${Math.round(mean)} ± ${(100 * rel2StdevError).toFixed(1)}% (n=${calc.n})`);
+        console.log(`${Math.round(mean)} ± ${(100 * rel2StdevError).toFixed(1)}% (n=${calc.n}) (best=${calc.best})`);
     }
 }
 

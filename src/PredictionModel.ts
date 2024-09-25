@@ -22,7 +22,7 @@ export class PredictionModel {
         public combinedModel: tf.LayersModel,
     ) {
         combinedModel.compile({
-            optimizer: tf.train.adam(0.00005),
+            optimizer: tf.train.adam(0.00002),
             loss: 'categoricalCrossentropy',
         });
     }
