@@ -22,7 +22,7 @@ export class PredictionModel {
         public combinedModel: tf.LayersModel,
     ) {
         combinedModel.compile({
-            optimizer: 'adam',
+            optimizer: tf.train.adam(0.00005),
             loss: 'categoricalCrossentropy',
         });
     }
@@ -53,6 +53,11 @@ export class PredictionModel {
             units: 16,
             activation: 'relu',
         }).apply(tensor) as tf.SymbolicTensor;
+
+        // tensor = tf.layers.dense({
+        //     units: 8,
+        //     activation: 'relu',
+        // }).apply(tensor) as tf.SymbolicTensor;
 
         // tensor = tf.layers.dropout({ rate: 0.2 }).apply(tensor) as tf.SymbolicTensor;
 
@@ -164,6 +169,8 @@ export class PredictionModel {
         const xs: unknown[][] = [...new Array(2 * evalNodeCount)].map(() => []);
         const ys: number[][] = [];
 
+        let skips = 0;
+
         for (let { from, to } of trainingData) {
             const pieceType = detectPiece({ from, to });
 
@@ -181,7 +188,9 @@ export class PredictionModel {
             }
 
             if (toIndex === undefined) {
-                throw new Error('No choices matched `to` board');
+                console.log(new Error('No choices matched `to` board'));
+                skips++;
+                continue;
             }
 
             const choicesExpanded = expandChoices(choices);
@@ -198,14 +207,16 @@ export class PredictionModel {
 
             ys.push(currLabels);
         }
+
+        const len = trainingData.length - skips;
     
         return {
             xs: xs.map((x, i) => tf.tensor(x as any).reshape(
                 i % 2 === 0
-                    ? [trainingData.length, 21, 12, 1]
-                    : [trainingData.length, extraFeatureLen]
+                    ? [len, 21, 12, 1]
+                    : [len, extraFeatureLen]
             )),
-            ys: tf.tensor(ys).reshape([trainingData.length, evalNodeCount]),
+            ys: tf.tensor(ys).reshape([len, evalNodeCount]),
         };
     }
 
