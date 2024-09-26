@@ -12,11 +12,13 @@ import { BoardJson } from '../src/Board';
 const execAsync = promisify(exec);
 
 async function downloadPredictionTrainingData() {
-    const basePath = 'https://github.com/voltrevo/stacking-data/raw/2ac61b0/20240924-1';
+    const basePath = 'https://github.com/voltrevo/stacking-data/raw/f143b90';
 
     const data = [
-        ...(await downloadAndParseJsonGz(`${basePath}/data.json.gz`)) as unknown[],
-        ...(await downloadAndParseJsonGz(`${basePath}/turbostack-data-1727147142024.json.gz`)) as unknown[],
+        ...(await downloadAndParseJsonGz(`${basePath}/20240926-1/turbostack-data-1727336042713.json.gz`)) as unknown[],
+        ...(await downloadAndParseJsonGz(`${basePath}/20240926-1/turbostack-data-1727336315306.json.gz`)) as unknown[],
+        ...(await downloadAndParseJsonGz(`${basePath}/20240926-1/turbostack-data-1727338601161.json.gz`)) as unknown[],
+        ...(await downloadAndParseJsonGz(`${basePath}/20240927-1/turbostack-data-1727392455091.json.gz`)) as unknown[],
     ] as { from: BoardJson[], to: BoardJson[] }[];
 
     const dataset = PredictionModel.dataSet();
