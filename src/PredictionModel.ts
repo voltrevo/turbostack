@@ -23,7 +23,7 @@ export class PredictionModel {
         public evalModel: tf.LayersModel,
         public combinedModel: tf.LayersModel,
     ) {
-        this.learningRate = 0.02;
+        this.learningRate = 0.0003;
         this.setLearningRate(this.learningRate);
     }
 
