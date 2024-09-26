@@ -17,14 +17,14 @@ const spatialShape = [21, 12, 1];
 const extraShape = [extraFeatureLen];
 
 export class PredictionModel {
+    public learningRate: number;
+
     constructor(
         public evalModel: tf.LayersModel,
         public combinedModel: tf.LayersModel,
     ) {
-        combinedModel.compile({
-            optimizer: tf.train.adam(0.0001),
-            loss: 'categoricalCrossentropy',
-        });
+        this.learningRate = 0.02;
+        this.setLearningRate(this.learningRate);
     }
 
     static createEvalModel(): tf.LayersModel {
@@ -118,6 +118,15 @@ export class PredictionModel {
         return new PredictionModel(evalModel, combinedModel);
     }
 
+    setLearningRate(learningRate: number) {
+        this.learningRate = learningRate;
+
+        this.combinedModel.compile({
+            optimizer: tf.train.adam(learningRate),
+            loss: 'categoricalCrossentropy',
+        });
+    }
+
     async train(
         trainingData: SplitDataSet<PredictionModelDataPoint>,
         epochs: number,
@@ -131,8 +140,8 @@ export class PredictionModel {
             validationData: [valData.xs, valData.ys],
             callbacks: [
                 tf.callbacks.earlyStopping({
-                    monitor: 'val_loss',
-                    patience: 10,
+                    monitor: 'loss',
+                    patience: 3,
                 }),
             ],
         });

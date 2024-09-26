@@ -20,7 +20,7 @@ export async function showPerformanceSummary(
 
     const calc = new WelfordCalculator();
 
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 30; i++) {
         const { finalScore } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
         calc.update(finalScore);
     }

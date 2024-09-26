@@ -9,30 +9,48 @@ async function trainPredictionModel() {
 
     console.log('loading training data');
     let trainingData = await PredictionModel.loadDataSet();
+
+    if (trainingData.size() === 0) {
+        throw new Error('Training data not found');
+    }
+
     console.log('valLoss:', model.calculateValLoss(trainingData));
 
+    let bestLoss = model.calculateLoss(trainingData);
+    let bestValLoss = model.calculateValLoss(trainingData);
+
     while (true) {
-        const currTrainingData = trainingData; //.sample(2000);
-
-        if (currTrainingData.size() === 0) {
-            throw new Error('Training data not found');
-        }
-
         try {
             // Train the model on the training data
-            await model.train(currTrainingData, 100);
+            await model.train(trainingData, 100);
         } catch (e) {
             console.error(e);
             continue;
         }
 
+        const newValLoss = model.calculateValLoss(trainingData);
+
         await showPerformanceSummary(
             Date.now() - startTime,
-            model.calculateValLoss(trainingData),
+            newValLoss,
             model.createBoardEvaluator(),
         );
 
-        await model.save();
+        const newLoss = model.calculateLoss(trainingData);
+
+        if (newLoss < bestLoss) {
+            bestLoss = newLoss;
+            model.setLearningRate(model.learningRate * Math.exp(0.05));
+        } else {
+            model.setLearningRate(model.learningRate * Math.exp(-0.5));
+        }
+
+        console.log('new learning rate:', model.learningRate);
+
+        if (newValLoss < bestValLoss) {
+            bestValLoss = newValLoss;
+            await model.save();
+        }
     }
 }
 
