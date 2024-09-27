@@ -19,15 +19,15 @@ export function generateScoreTrainingData(
     const trainingData: ScoreModelDataPoint[] = [];
 
     while (trainingData.length < n) {
-        const { positions, finalScore } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
+        let { positions, finalScore } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
 
         if (positions.length === 0) {
             throw new Error('Should not be possible');
         }
 
-        for (let i = 0; i < deepSamplesPerGame; i++) {
-            const position = positions[Math.floor(Math.random() * positions.length)];
+        ({ positions, finalScore } = generateGameBoards(positions[Math.floor(Math.random() * positions.length)], boardEvaluator, 0));
 
+        for (const position of positions) {
             const choices = position.findChoices(getRandomPieceType());
 
             if (choices.length === 0) {

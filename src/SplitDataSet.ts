@@ -122,7 +122,13 @@ export class SplitDataSet<T> {
         const datasets = await Promise.all(
             names.map(async name => {
                 const ds = new SplitDataSet(name, this.toSaveFmt, this.fromSaveFmt);
-                await ds.load();
+
+                try {
+                    await ds.load();
+                } catch (e) {
+                    console.error(`Error loading ${name}: ${e}`);
+                }
+
                 return ds;
             }),
         );
