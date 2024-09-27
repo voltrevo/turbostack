@@ -1,11 +1,10 @@
 import { generateScoreTrainingData } from "../src/generateScoreTrainingData";
-import { PredictionModel } from "../src/PredictionModel";
 import { ScoreModel } from "../src/ScoreModel";
 import { WelfordCalculator } from "../src/WelfordCalculator";
 
 async function generateAndSaveTrainingData() {
     console.log('loading model');
-    let predictionModel = await PredictionModel.load();
+    let scoreModel = await ScoreModel.load();
 
     const yyyymmdd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
@@ -15,14 +14,14 @@ async function generateAndSaveTrainingData() {
     ]);
 
     // Create a board evaluator using the blank model
-    let boardEvaluator = predictionModel.createBoardEvaluator();
+    let boardEvaluator = scoreModel.createBoardEvaluator();
 
     console.log('generating training data');
     // Generate training data using the board evaluator
 
     const calc = new WelfordCalculator();
 
-    const limit = 100_000;
+    const limit = 2_000;
     let t = Date.now();
 
     while (trainingData.size() < limit) {
