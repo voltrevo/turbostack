@@ -2,8 +2,9 @@ import { artificialHeightLimit } from "./hyperParams";
 import { Board } from "./Board";
 import { getRandomPieceType } from "./PieceType";
 import { BoardEvaluator } from "./BoardEvaluator";
+import softmax from "./softmax";
 
-export function generateGameBoards(board: Board, boardEvaluator: BoardEvaluator) {
+export function generateGameBoards(board: Board, boardEvaluator: BoardEvaluator, temperature = 0) {
     const positions: Board[] = [];
 
     // enough for 1000 lines, should not be possible
@@ -37,14 +38,27 @@ export function generateGameBoards(board: Board, boardEvaluator: BoardEvaluator)
         }
 
         // Use evalBoard to evaluate each possible board
-        const evaluatedChoices = boardEvaluator(choices).map((score, i) => [score, i]);
+        const evaluatedChoices = softmax(boardEvaluator(choices), temperature);
 
-        // Find the board with the highest evalScore
-        evaluatedChoices.sort((a, b) => b[0] - a[0]);
-        const bestChoice = choices[evaluatedChoices[0][1]];
+        let rand = Math.random();
+
+        let newBoard: Board | undefined = undefined;
+
+        for (let i = 0; i < evaluatedChoices.length; i++) {
+            rand -= evaluatedChoices[i];
+
+            if (rand <= 0) {
+                newBoard = choices[i];
+                break;
+            }
+        }
+
+        if (!newBoard) {
+            throw new Error('Should not be possible');
+        }
 
         // Update the board to the best choice
-        board = bestChoice;
+        board = newBoard;
     }
 
     // Get the final score of the game
