@@ -1,6 +1,6 @@
 // When playing to the end to determine the final score to use for training, play this many times
 // and average them
-export const nPlayoutsToAvg = 1;
+export const nPlayoutsToAvg = 100;
 
 export const stdMaxLines = 130;
 
@@ -12,7 +12,7 @@ export const artificialHeightLimit = 15;
 // for each base game
 // (lookahead data is training the current board on the average eval of the next move)
 // TODO: These make less sense currently due to random play to seed the board
-export const deepSamplesPerGame = 10;
+export const deepSamplesPerGame = 1;
 export const lookaheadSamplesPerGame = 0;
 
 // Other than the board itself, how many features?

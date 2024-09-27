@@ -22,11 +22,11 @@ async function generateAndSaveTrainingData() {
 
     const calc = new WelfordCalculator();
 
-    const limit = 20_000;
+    const limit = 10;
     let t = Date.now();
 
     while (trainingData.size() < limit) {
-        const newData = generateScoreTrainingData(boardEvaluator, 1_000);
+        const newData = generateScoreTrainingData(boardEvaluator, 1);
 
         const uniqScores = new Set(newData.map(d => d.finalScore));
 

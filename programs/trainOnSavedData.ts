@@ -28,10 +28,10 @@ async function trainOnSavedData() {
             boards => model.predictMeanStdev(boards),
         );
 
-        const sampleTrainingData = trainingData; //.sample(10_000);
+        const sampleTrainingData = trainingData.sample(300_000);
 
         // Train the model on the training data
-        await model.train(sampleTrainingData, 200);
+        await model.train(sampleTrainingData, 10);
 
         // Use the updated model to replace the training data
         boardEvaluator = model.createBoardEvaluator();

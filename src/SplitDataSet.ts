@@ -56,7 +56,7 @@ export class SplitDataSet<T> {
         await fs.writeFile(`data/dataset/${this.name}.json`, JSON.stringify({
             data: this.data.map(this.toSaveFmt),
             valData: this.valData.map(this.toSaveFmt),
-        }));
+        }, null, 2));
     }
 
     async load() {

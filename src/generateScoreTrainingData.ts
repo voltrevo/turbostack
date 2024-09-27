@@ -19,20 +19,14 @@ export function generateScoreTrainingData(
     const trainingData: ScoreModelDataPoint[] = [];
 
     while (trainingData.length < n) {
-        let { positions, finalScore } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
+        let { positions } = generateGameBoards(new Board(stdMaxLines), boardEvaluator, 1.5);
 
         if (positions.length === 0) {
             throw new Error('Should not be possible');
         }
 
-        ({ positions, finalScore } = generateGameBoards(positions[Math.floor(Math.random() * positions.length)], boardEvaluator, 0));
-
-        for (const position of positions) {
-            const choices = position.findChoices(getRandomPieceType());
-
-            if (choices.length === 0) {
-                continue;
-            }
+        for (let i = 0; i < deepSamplesPerGame; i++) {
+            const position = positions[Math.floor(randMaxN(2) * positions.length)];
 
             // // pick a random next move, play that, and train it
             // // (model is constantly asked to evaluate all the next choices, so we should train on that
@@ -44,7 +38,6 @@ export function generateScoreTrainingData(
             // Add the pair to the training data
             trainingData.push(augment({
                 board: position,
-                finalScore,
                 boardEvaluator,
             }));
         }
@@ -72,16 +65,25 @@ export function generateScoreTrainingData(
     return trainingData;
 }
 
-function augment({ board, finalScore, boardEvaluator }: {
+function randMaxN(n: number): number {
+    let max = 0;
+
+    for (let i = 0; i < n; i++) {
+        max = Math.max(max, Math.random());
+    }
+
+    return max;
+}
+
+function augment({ board, boardEvaluator }: {
     board: Board;
-    finalScore: number;
     boardEvaluator: BoardEvaluator;
 }): ScoreModelDataPoint {
-    const scores = [finalScore]
+    const scores = []
 
     while (scores.length < nPlayoutsToAvg) {
-        const { finalScore: another } = generateGameBoards(board, boardEvaluator);
-        scores.push(another);
+        const { finalScore } = generateGameBoards(board, boardEvaluator);
+        scores.push(finalScore);
     }
 
     const avgScore = scores.reduce((a, b) => a + b) / scores.length;
@@ -89,6 +91,7 @@ function augment({ board, finalScore, boardEvaluator }: {
     return {
         board,
         finalScore: avgScore,
+        finalScoreSamples: scores,
     };
 }
 

@@ -11,9 +11,10 @@ import { PredictionModel } from './PredictionModel';
 export type ScoreModelDataPoint = {
     board: Board;
     finalScore: number;
+    finalScoreSamples?: number[];
 };
 
-const learningRate = 0.0003;
+const learningRate = 0.001;
 
 export class ScoreModel {
     constructor(public tfModel: tf.LayersModel) {}
