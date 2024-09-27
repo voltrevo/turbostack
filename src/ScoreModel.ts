@@ -171,6 +171,9 @@ export class ScoreModel {
         const means = predictions.slice([0, 0], [-1, 1]).dataSync();
         const stdevs = predictions.slice([0, 1], [-1, 1]).dataSync();
 
+        inputTensors.forEach(t => t.dispose());
+        predictions.dispose();
+
         return Array.from({ length: boards.length }, (_, i) => ({
             mean: means[i],
             stdev: stdevs[i],
