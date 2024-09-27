@@ -46,6 +46,6 @@ export class WelfordCalculator {
         // more than well enough for our purposes
         const rel2StdevError = 2 * metaStdev / mean;
 
-        return `${Math.round(mean)} ± ${(100 * rel2StdevError).toFixed(1)}% (n=${this.n}) (best=${this.best})`;
+        return `mean=${Math.round(mean)} (±${(100 * rel2StdevError).toFixed(1)}%), stdev=${Math.round(stdev)}, best=${this.best}, n=${this.n}`;
     }
 }
