@@ -18,15 +18,7 @@ async function evaluateModel() {
             calc.update(finalScore);
         }
 
-        const mean = calc.getMean();
-        const stdev = calc.getStdev();
-        const metaStdev = stdev / Math.sqrt(calc.n);
-
-        // This is a little crude because it assumes stdev is the true value, but it seems to work
-        // more than well enough for our purposes
-        const rel2StdevError = 2 * metaStdev / mean;
-
-        console.log(`${Math.round(mean)} ± ${(100 * rel2StdevError).toFixed(1)}% (n=${calc.n}) (best=${calc.best})`);
+        console.log(calc.fmt());
     }
 }
 

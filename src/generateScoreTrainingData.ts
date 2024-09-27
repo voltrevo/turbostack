@@ -2,7 +2,6 @@
 import { deepSamplesPerGame, lookaheadSamplesPerGame, nPlayoutsToAvg, stdMaxLines } from './hyperParams';
 import { Board } from './Board';
 import { generateGameBoards } from './generateGameBoards';
-import { randomBoardEvaluator } from './randomBoardEvaluator';
 import { ALL_PIECE_TYPES, getRandomPieceType } from './PieceType';
 import { ScoreModelDataPoint } from './ScoreModel';
 import { BoardEvaluator } from './BoardEvaluator';
@@ -20,7 +19,7 @@ export function generateScoreTrainingData(
     const trainingData: ScoreModelDataPoint[] = [];
 
     while (trainingData.length < n) {
-        const { positions } = generateGameBoards(new Board(stdMaxLines), randomBoardEvaluator);
+        const { positions, finalScore } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
 
         if (positions.length === 0) {
             throw new Error('Should not be possible');
@@ -30,7 +29,7 @@ export function generateScoreTrainingData(
             const position = positions[Math.floor(Math.random() * positions.length)];
 
             const choices = position.findChoices(getRandomPieceType());
-    
+
             if (choices.length === 0) {
                 continue;
             }
@@ -40,13 +39,11 @@ export function generateScoreTrainingData(
             // // kind of thing as well as 'good' positions)
             // const randomChoice = choices[Math.floor(Math.random() * choices.length)];
             // const { finalScore } = generateGameBoards(randomChoice, boardEvaluator);
-            const { positions: newPositions, finalScore } = generateGameBoards(position, boardEvaluator);
-
-            const selPosition = newPositions[Math.floor(Math.random() * newPositions.length)];
+            // const { finalScore } = generateGameBoards(position, boardEvaluator);
 
             // Add the pair to the training data
             trainingData.push(augment({
-                board: selPosition,
+                board: position,
                 finalScore,
                 boardEvaluator,
             }));
@@ -56,7 +53,7 @@ export function generateScoreTrainingData(
             const position = positions[Math.floor(Math.random() * positions.length)];
 
             const choices = position.findChoices(getRandomPieceType());
-    
+
             if (choices.length === 0) {
                 continue;
             }

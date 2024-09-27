@@ -36,4 +36,16 @@ export class WelfordCalculator {
         const variance = this.M2 / (this.n - 1); // Sample variance
         return Math.sqrt(variance);
     }
+
+    public fmt() {
+        const mean = this.getMean();
+        const stdev = this.getStdev();
+        const metaStdev = stdev / Math.sqrt(this.n);
+
+        // This is a little crude because it assumes stdev is the true value, but it seems to work
+        // more than well enough for our purposes
+        const rel2StdevError = 2 * metaStdev / mean;
+
+        return `${Math.round(mean)} ± ${(100 * rel2StdevError).toFixed(1)}% (n=${this.n}) (best=${this.best})`;
+    }
 }

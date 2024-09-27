@@ -204,9 +204,9 @@ export class ScoreModel {
         };
     }
 
-    static dataSet(): SplitDataSet<ScoreModelDataPoint> {
+    static dataSet(tags: (number | string)[] = []): SplitDataSet<ScoreModelDataPoint> {
         return new SplitDataSet(
-            'scoreModelData',
+            ['scoreModelData', ...tags].join('-'),
             ({ board, finalScore }) => ({
                 board: board.toJson(),
                 finalScore,

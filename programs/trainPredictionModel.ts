@@ -14,10 +14,11 @@ async function trainPredictionModel() {
         throw new Error('Training data not found');
     }
 
-    console.log('valLoss:', model.calculateValLoss(trainingData));
-
     let bestLoss = model.calculateLoss(trainingData);
     let bestValLoss = model.calculateValLoss(trainingData);
+
+    console.log('loss:', bestLoss);
+    console.log('valLoss:', bestValLoss);
 
     while (true) {
         try {

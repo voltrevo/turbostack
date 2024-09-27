@@ -8,7 +8,8 @@ async function trainOnSavedData() {
     let model = await ScoreModel.load();
 
     console.log('loading training data');
-    const trainingData = await ScoreModel.loadDataSet();
+    const trainingData = ScoreModel.dataSet();
+    await trainingData.loadMulti();
 
     if (trainingData.size() === 0) {
         throw new Error('Training data not found');

@@ -12,7 +12,7 @@ export const artificialHeightLimit = 15;
 // for each base game
 // (lookahead data is training the current board on the average eval of the next move)
 // TODO: These make less sense currently due to random play to seed the board
-export const deepSamplesPerGame = 1;
+export const deepSamplesPerGame = 10;
 export const lookaheadSamplesPerGame = 0;
 
 // Other than the board itself, how many features?

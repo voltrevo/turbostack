@@ -96,6 +96,45 @@ export class SplitDataSet<T> {
             this.valData = saved.valData;
         }
     }
+
+    async loadMulti() {
+        // instead of just `data/dataset/${this.name}.json`
+        // we want `data/dataset/${this.name}-*.json`
+        // find matches (if zero, throw)
+        // load each, merge
+
+        if (this.name === undefined) {
+            throw new Error('save/load not enabled for this instance');
+        }
+
+        let names: string[] = [];
+
+        names = await Promise.all(
+            (await fs.readdir('data/dataset'))
+                .filter(f => f.startsWith(`${this.name}-`) && f.endsWith('.json'))
+                .map(async f => f.slice(0, -('.json'.length))),
+        );
+
+        if (names.length === 0) {
+            throw new Error('No files found');
+        }
+
+        const datasets = await Promise.all(
+            names.map(async name => {
+                const ds = new SplitDataSet(name, this.toSaveFmt, this.fromSaveFmt);
+                await ds.load();
+                return ds;
+            }),
+        );
+
+        this.data = [];
+        this.valData = [];
+
+        for (const ds of datasets) {
+            this.data.push(...ds.data);
+            this.valData.push(...ds.valData);
+        }
+    }
 }
 
 function shuffle<T>(arr: T[], size: number) {
