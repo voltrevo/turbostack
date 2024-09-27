@@ -1,18 +1,14 @@
+import fs from 'fs/promises';
+
 import { generateScoreTrainingData } from "../src/generateScoreTrainingData";
 import { PredictionModel } from "../src/PredictionModel";
-import { ScoreModel } from "../src/ScoreModel";
 import { WelfordCalculator } from "../src/WelfordCalculator";
 
 async function generateAndSaveTrainingData() {
     console.log('loading model');
     let predictionModel = await PredictionModel.load();
 
-    const yyyymmdd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-
-    let trainingData = ScoreModel.dataSet([
-        yyyymmdd,
-        Math.random().toString(36).slice(2, 6),
-    ]);
+    const yyyymmddhh = () => new Date().toISOString().slice(0, 13).replace(/[-:T]/g, '');
 
     // Create a board evaluator using the blank model
     let boardEvaluator = predictionModel.createBoardEvaluator();
@@ -25,8 +21,19 @@ async function generateAndSaveTrainingData() {
     const limit = 10;
     let t = Date.now();
 
-    while (trainingData.size() < limit) {
+    let size = 0;
+
+    while (size < limit) {
         const newData = generateScoreTrainingData(boardEvaluator, 1);
+        size += newData.length;
+
+        const lineJson = newData.map(({ board, finalScore, finalScoreSamples }) => JSON.stringify({
+            board: board.toJson(),
+            finalScore,
+            finalScoreSamples,
+        })).join('\n');
+
+        await fs.appendFile(`./data/dataset/scoreTrainingData-${yyyymmddhh()}.jsonl`, lineJson + '\n');
 
         const uniqScores = new Set(newData.map(d => d.finalScore));
 
@@ -34,17 +41,13 @@ async function generateAndSaveTrainingData() {
             calc.update(score);
         }
 
-        trainingData.add(newData);
-
         console.log();
         console.log(calc.fmt());
 
         console.log([
-            trainingData.size().toLocaleString(),
+            size.toLocaleString(),
             limit.toLocaleString(),
         ].join(' / '));
-
-        await trainingData.save();
 
         const dt = Date.now() - t;
         t += dt;
