@@ -26,21 +26,12 @@ export async function showPerformanceSummary(
         calc.update(finalScore);
     }
 
-    const mean = calc.getMean();
-    const stdev = calc.getStdev();
-    const metaStdev = stdev / Math.sqrt(calc.n);
-
-    // This is a little crude because it assumes stdev is the true value, but it seems to work
-    // more than well enough for our purposes
-    const rel2StdevError = 2 * metaStdev / mean;
-
-    console.log(`Avg: ${Math.round(mean)} ± ${(100 * rel2StdevError).toFixed(1)}% (n=${calc.n})`);
-    console.log(`Stdev: ${stdev}`);
+    console.log(calc.fmt());
 
     const durationMinutes = (duration / 60_000).toFixed(1);
     console.log(`Training for ${durationMinutes} minutes`);
 
-    await addPerfLog(durationMinutes, valLoss, mean - 2 * metaStdev, mean + 2 * metaStdev);
+    await addPerfLog(durationMinutes, valLoss, calc.fmt());
 }
 
 function getSampleBoard(boardEvaluator: BoardEvaluator) {

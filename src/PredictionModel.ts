@@ -104,10 +104,13 @@ export class PredictionModel {
         await this.evalModel.save('file://data/predictionModel');
     }
 
-    static async load() {
+    static async load(mustExist = false) {
         let evalModel;
 
         if (!(await exists('data/predictionModel'))) {
+            if (mustExist) {
+                throw new Error('Model does not exist');
+            }
             evalModel = PredictionModel.createEvalModel();
         } else {
             evalModel = await tf.loadLayersModel('file://data/predictionModel/model.json');

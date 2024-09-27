@@ -6,65 +6,49 @@ import { exists } from './exists';
 import { SplitDataSet } from './SplitDataSet';
 import { Board, MlInputData } from './Board';
 import { BoardEvaluator } from './BoardEvaluator';
+import { PredictionModel } from './PredictionModel';
 
 export type ScoreModelDataPoint = {
     board: Board;
     finalScore: number;
 };
 
-const learningRate = 0.0001;
-
-const spatialShape = [21, 12, 1];
-const extraShape = [extraFeatureLen];
+const learningRate = 0.001;
 
 export class ScoreModel {
     constructor(public tfModel: tf.LayersModel) {}
 
-    static create(): ScoreModel {
-        const boardInput = tf.input({ shape: spatialShape });
-        const paramsInput = tf.input({ shape: extraShape });
+    static async create(): Promise<ScoreModel> {
+        const predictionModel = await PredictionModel.load(true);
+        const baseModel = predictionModel.evalModel;
 
-        let tensor = tf.layers.conv2d({
-            filters: 8,
-            kernelSize: [5, 3],
-        }).apply(boardInput) as tf.SymbolicTensor;
+        baseModel.layers.forEach(layer => {
+            layer.trainable = false;
+        });
 
-        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
-
-        tensor = tf.layers.conv2d({
-            filters: 16,
-            kernelSize: [1, 10],
-        }).apply(tensor) as tf.SymbolicTensor;
-
-        // tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
-
-        tensor = tf.layers.flatten().apply(tensor) as tf.SymbolicTensor;
-
-        tensor = tf.layers.concatenate().apply([
-            tensor,
-            paramsInput,
-        ]) as tf.SymbolicTensor;
+        let tensor = baseModel.layers[baseModel.layers.length - 3].output;
 
         tensor = tf.layers.dense({
             units: 16,
+            name: 'newDense1',
         }).apply(tensor) as tf.SymbolicTensor;
 
-        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
-
-        // tensor = tf.layers.dense({
-        //     units: 8,
-        //     activation: 'relu',
-        // }).apply(tensor) as tf.SymbolicTensor;
-
-        // tensor = tf.layers.dropout({ rate: 0.2 }).apply(tensor) as tf.SymbolicTensor;
+        tensor = tf.layers.leakyReLU({
+            alpha: 0.01,
+            name: 'newLeakyReLU1',
+        }).apply(tensor) as tf.SymbolicTensor;
 
         tensor = tf.layers.dense({
             units: 2,
+            name: 'newDense2',
         }).apply(tensor) as tf.SymbolicTensor;
 
-        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
+        tensor = tf.layers.leakyReLU({
+            alpha: 0.01,
+            name: 'newLeakyReLU2',
+        }).apply(tensor) as tf.SymbolicTensor;
 
-        const model = tf.model({ inputs: [boardInput, paramsInput], outputs: tensor });
+        const model = tf.model({ inputs: baseModel.inputs, outputs: tensor });
 
         model.compile({
             optimizer: tf.train.adam(learningRate),
