@@ -23,7 +23,7 @@ async function trainPredictionModel() {
     while (true) {
         try {
             // Train the model on the training data
-            await model.train(trainingData, 100);
+            await model.train(trainingData, 10);
         } catch (e) {
             console.error(e);
             continue;

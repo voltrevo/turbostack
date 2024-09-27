@@ -32,14 +32,14 @@ export class PredictionModel {
         const paramsInput = tf.input({ shape: extraShape });
 
         let tensor = tf.layers.conv2d({
-            filters: 8,
+            filters: 16,
             kernelSize: [5, 3],
         }).apply(boardInput) as tf.SymbolicTensor;
 
         tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
 
         tensor = tf.layers.conv2d({
-            filters: 16,
+            filters: 64,
             kernelSize: [1, 10],
         }).apply(tensor) as tf.SymbolicTensor;
 
@@ -139,7 +139,7 @@ export class PredictionModel {
     
         await this.combinedModel.fit(data.xs, data.ys, {
             epochs,
-            batchSize: 32,
+            batchSize: 128,
             validationData: [valData.xs, valData.ys],
             callbacks: [
                 tf.callbacks.earlyStopping({

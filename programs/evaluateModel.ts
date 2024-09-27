@@ -2,11 +2,11 @@ import { Board } from "../src/Board";
 import { generateGameBoards } from "../src/generateGameBoards";
 import { WelfordCalculator } from "../src/WelfordCalculator";
 import { stdMaxLines } from "../src/hyperParams";
-import { ScoreModel } from "../src/ScoreModel";
+import { PredictionModel } from "../src/PredictionModel";
 
 async function evaluateModel() {
     console.log('loading model');
-    let model = await ScoreModel.load();
+    let model = await PredictionModel.load();
 
     const calc = new WelfordCalculator();
 
