@@ -9,9 +9,13 @@ export function generateGameBoards(board: Board, boardEvaluator: BoardEvaluator)
     // enough for 1000 lines, should not be possible
     const maxGameIterations = 2500; // Prevent infinite loops
 
-    while (!board.finished) {
+    while (true) {
         // Record the current board state
         positions.push(board.clone());
+
+        if (board.finished) {
+            break;
+        }
 
         if (board.maxHeight() > artificialHeightLimit) {
             break;

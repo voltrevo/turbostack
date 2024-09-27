@@ -13,7 +13,7 @@ export type ScoreModelDataPoint = {
     finalScore: number;
 };
 
-const learningRate = 0.00003;
+const learningRate = 0.0003;
 
 export class ScoreModel {
     constructor(public tfModel: tf.LayersModel) {}
@@ -99,7 +99,7 @@ export class ScoreModel {
 
         await this.tfModel.fit(data.xs, data.ys, {
             epochs,
-            batchSize: 32,
+            batchSize: 1024,
             validationData: [valData.xs, valData.ys],
             verbose: 1,
             callbacks: [
