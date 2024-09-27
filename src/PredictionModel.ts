@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 
 import * as tf from '@tensorflow/tfjs-node';
-import { evalNodeCount, extraFeatureLen, useBoard } from './hyperParams';
+import { evalNodeCount, extraFeatureLen } from './hyperParams';
 import { exists } from './exists';
 import { SplitDataSet } from './SplitDataSet';
 import { Board } from './Board';

@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 
 import * as tf from '@tensorflow/tfjs-node';
-import { extraFeatureLen, useBoard } from './hyperParams';
+import { extraFeatureLen } from './hyperParams';
 import { exists } from './exists';
 import { SplitDataSet } from './SplitDataSet';
 import { Board, MlInputData } from './Board';
@@ -12,76 +12,67 @@ export type ScoreModelDataPoint = {
     finalScore: number;
 };
 
+const learningRate = 0.0001;
+
+const spatialShape = [21, 12, 1];
+const extraShape = [extraFeatureLen];
+
 export class ScoreModel {
     constructor(public tfModel: tf.LayersModel) {}
 
     static create(): ScoreModel {
-        const inputs: tf.SymbolicTensor[] = [];
-        const inputsToFinalLayers: tf.SymbolicTensor[] = [];
-    
-        if (useBoard) {
-            // Input for the Tetris board (20x10 binary matrix with boundary data)
-            let tensor = tf.input({ shape: [21, 12, 1] });
-    
-            const boardInput = tensor;
-            inputs.push(boardInput);
-    
-            // // Convolutional layers to process the input (board + boundary)
-            tensor = tf.layers.conv2d({ filters: 8, kernelSize: 4, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
-            // tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor) as tf.SymbolicTensor;
-    
-            tensor = tf.layers.conv2d({
-                filters: 16,
-                kernelSize: [1, 9],
-                activation: 'relu',
-            }).apply(tensor) as tf.SymbolicTensor;
-            // tensor = tf.layers.maxPooling2d({ poolSize: [2, 2] }).apply(tensor) as tf.SymbolicTensor;
-    
-            // Flatten and fully connected layers
-            tensor = tf.layers.flatten().apply(tensor) as tf.SymbolicTensor;
-    
-            tensor = tf.layers.dense({ units: 16, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
-    
-            inputsToFinalLayers.push(tensor);
-        }
-    
-        // Input for the extra features (lines remaining, current score)
-        const extraInput = tf.input({ shape: [extraFeatureLen] });
-        inputs.push(extraInput);
-    
-        inputsToFinalLayers.push(extraInput);
-    
-        let tensor;
-    
-        if (inputsToFinalLayers.length > 1) {
-            // Combine the outputs of the two branches
-            tensor = tf.layers.concatenate().apply(inputsToFinalLayers) as tf.SymbolicTensor;
-        } else if (inputsToFinalLayers.length === 1) {
-            tensor = inputsToFinalLayers[0];
-        } else {
-            throw new Error('unexpected len');
-        }
-    
-        // Fully connected layers
-        tensor = tf.layers.dense({ units: 8, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
-        // tensor = tf.layers.dropout({ rate: 0.3 }).apply(tensor);
-    
-        // tensor = tf.layers.dense({ units: 16, activation: 'relu' }).apply(tensor) as tf.SymbolicTensor;
-        // tensor = tf.layers.dropout({ rate: 0.3 }).apply(tensor);
-    
-        // Output layer for score prediction
-        const output = tf.layers.dense({ units: 1 }).apply(tensor);
-    
-        // Create and compile the model
-        const model = tf.model({ inputs, outputs: output as tf.SymbolicTensor });
-    
+        const boardInput = tf.input({ shape: spatialShape });
+        const paramsInput = tf.input({ shape: extraShape });
+
+        let tensor = tf.layers.conv2d({
+            filters: 8,
+            kernelSize: [5, 3],
+        }).apply(boardInput) as tf.SymbolicTensor;
+
+        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.conv2d({
+            filters: 16,
+            kernelSize: [1, 10],
+        }).apply(tensor) as tf.SymbolicTensor;
+
+        // tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.flatten().apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.concatenate().apply([
+            tensor,
+            paramsInput,
+        ]) as tf.SymbolicTensor;
+
+        tensor = tf.layers.dense({
+            units: 16,
+        }).apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
+
+        // tensor = tf.layers.dense({
+        //     units: 8,
+        //     activation: 'relu',
+        // }).apply(tensor) as tf.SymbolicTensor;
+
+        // tensor = tf.layers.dropout({ rate: 0.2 }).apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.dense({
+            units: 2,
+        }).apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
+
+        const model = tf.model({ inputs: [boardInput, paramsInput], outputs: tensor });
+
         model.compile({
-            optimizer: 'adam',
-            loss: 'meanSquaredError'
+            optimizer: tf.train.adam(learningRate),
+            loss: negativeLogLikelihood,
         });
-    
+
         model.summary();
-    
+
         return new ScoreModel(model);
     }
 
@@ -99,9 +90,9 @@ export class ScoreModel {
 
         model.compile({
             optimizer: 'adam',
-            loss: 'meanSquaredError'
+            loss: negativeLogLikelihood,
         });
-    
+
         return new ScoreModel(model);
     }
 
@@ -111,96 +102,113 @@ export class ScoreModel {
     ) {
         const data = ScoreModel.prepareTrainingData(trainingData.data);
         const valData = ScoreModel.prepareTrainingData(trainingData.valData);
-    
+
         await this.tfModel.fit(data.xs, data.ys, {
             epochs,
             batchSize: 32,
             validationData: [valData.xs, valData.ys],
+            verbose: 1,
             callbacks: [
                 tf.callbacks.earlyStopping({
                     monitor: 'val_loss',
                     patience: 20,
                 }),
+                new CustomLogger(),
             ],
         });
-    
+
         console.log("Training complete.");
     }
 
     calculateValLoss(trainingData: SplitDataSet<ScoreModelDataPoint>) {
+        // Prepare validation data
         const valData = ScoreModel.prepareTrainingData(trainingData.valData);
-        const predictions = this.tfModel.predict(valData.xs) as tf.Tensor;
-        const valLoss = tf.metrics.meanSquaredError(valData.ys, predictions).sum().dataSync()[0];
-    
-        return valLoss / valData.xs[0].shape[0];
+
+        // Get predictions from the model
+        const predictions = this.tfModel.predict(valData.xs) as tf.Tensor2D;
+
+        // Extract the actual validation labels (ys)
+        const yTrue = valData.ys;
+
+        // Compute negative log-likelihood loss for the validation data
+        const valLossTensor = negativeLogLikelihood(yTrue, predictions);
+
+        // Sum up the loss values
+        const valLossSum = valLossTensor.sum().dataSync()[0];
+
+        // Clean up tensors to avoid memory leaks
+        valLossTensor.dispose();
+        predictions.dispose();
+
+        // Return average validation loss
+        return valLossSum / valData.xs[0].shape[0];
     }
 
     createBoardEvaluator(): BoardEvaluator {
         return (boards: Board[]): number[] => {
-            const mlInputData = boards.map(b => b.toMlInputData());
-
-            // Extract boards, scores, and lines remaining from the input boards
-            const boardData: Uint8Array[] = mlInputData.map(d => d.boardData);
-            const extraData: number[][] = mlInputData.map(d => [...d.extraFeatures]);
-
-            // Prepare tensors for the model
-            const inputTensors: tf.Tensor<tf.Rank>[] = [];
-
-            if (useBoard) {
-                inputTensors.push(
-                    // Shape: [batchSize, rows, cols, channels]
-                    tf.tensor(boardData).reshape([boards.length, 21, 12, 1]),
-                );
-            }
-
-            inputTensors.push(
-                // Shape: [batchSize, extraFeatureLen]
-                tf.tensor(extraData).reshape([boards.length, extraFeatureLen]),
-            );
-
-            // Perform batch inference
-            const predictions = this.tfModel.predict(inputTensors) as tf.Tensor;
-
-            // Extract the predicted scores from the tensor
-            // Get the predictions as a flat array
-            const predictedRemainingScores = predictions.dataSync();
-
-            // Convert Float32Array to a normal array
-            return Array.from(predictedRemainingScores)
-                .map((p, i) => boards[i].score + p); // add current score to remaining prediction
+            return this.predictMeanStdev(boards).map(({ mean }) => mean);
         };
+    }
+
+    predictMeanStdev(boards: Board[]): { mean: number; stdev: number }[] {
+        const mlInputData = boards.map(b => b.toMlInputData());
+
+        // Extract boards, scores, and lines remaining from the input boards
+        const boardData: Uint8Array[] = mlInputData.map(d => d.boardData);
+        const extraData: number[][] = mlInputData.map(d => [...d.extraFeatures]);
+
+        // Prepare tensors for the model
+        const inputTensors: tf.Tensor<tf.Rank>[] = [];
+
+        inputTensors.push(
+            // Shape: [batchSize, rows, cols, channels]
+            tf.tensor(boardData).reshape([boards.length, 21, 12, 1]),
+        );
+
+        inputTensors.push(
+            // Shape: [batchSize, extraFeatureLen]
+            tf.tensor(extraData).reshape([boards.length, extraFeatureLen]),
+        );
+
+        // Perform batch inference
+        const predictions = this.tfModel.predict(inputTensors) as tf.Tensor;
+
+        // predictions is [mean, stdev][], we want mean[]
+        const means = predictions.slice([0, 0], [-1, 1]).dataSync();
+        const stdevs = predictions.slice([0, 1], [-1, 1]).dataSync();
+
+        return Array.from({ length: boards.length }, (_, i) => ({
+            mean: means[i],
+            stdev: stdevs[i],
+        }));
     }
 
     static prepareTrainingData(trainingData: ScoreModelDataPoint[]) {
         const boardData: MlInputData['boardData'][] = [];
         const extraData: number[][] = [];
-        const labels: number[] = [];
-    
+        const labels: [number, number][] = [];
+
         trainingData.forEach(({ board, finalScore }) => {
             const { boardData: currBoardData, extraFeatures } = board.toMlInputData();
-    
+
             // Use the board data directly, as it is already in the [row][column][channel] format
             boardData.push(currBoardData);
             extraData.push([...extraFeatures]);
-    
-            const scoreRemaining = finalScore - board.score
-            labels.push(scoreRemaining);
+
+            labels.push([finalScore, 0]);
         });
-    
+
         const boardXs = tf.tensor(boardData).reshape([trainingData.length, 21, 12, 1]);
         const extraXs = tf.tensor(extraData).reshape([trainingData.length, extraFeatureLen]);
-    
+
         const xs = [];
-    
-        if (useBoard) {
-            xs.push(boardXs);
-        }
-    
+
+        xs.push(boardXs);
         xs.push(extraXs);
-    
+
         return {
             xs,
-            ys: tf.tensor(labels).reshape([trainingData.length, 1])
+            ys: tf.tensor(labels).reshape([trainingData.length, 2])
         };
     }
 
@@ -223,5 +231,41 @@ export class ScoreModel {
         await dataSet.load();
 
         return dataSet;
+    }
+}
+
+function negativeLogLikelihood(yTrue: tf.Tensor, yPred: tf.Tensor) {
+    // Predicted mean and log(std)
+    const mean = yPred.slice([0, 0], [-1, 1]);
+    const logStd = yPred.slice([0, 1], [-1, 1]);
+
+    // Actual y values from yTrue (first column)
+    const yTrueValue = yTrue.slice([0, 0], [-1, 1]);
+
+    // Convert log(std) to std
+    const std = tf.add(tf.softplus(logStd), 1e-6); // Ensure positive std
+    const variance = tf.square(std);
+
+    // Negative log-likelihood computation
+    const logLikelihood = tf.add(
+        tf.div(tf.square(tf.sub(yTrueValue, mean)), tf.mul(2, variance)), // (yTrue - mean)^2 / (2 * variance)
+        tf.log(std) // log(std)
+    ).add(0.5 * Math.log(2 * Math.PI)); // Constant term
+
+    // Return mean negative log-likelihood
+    return tf.mean(logLikelihood);
+}
+
+class CustomLogger extends tf.CustomCallback {
+    constructor() {
+        super({});
+    }
+
+    async onEpochEnd(epoch: number, logs?: tf.Logs) {
+        if (logs) {
+            const loss = logs.loss?.toFixed(6); // More decimal places
+            const valLoss = logs.val_loss?.toFixed(6); // More decimal places
+            console.log(`Epoch ${epoch + 1}: loss=${loss}, val_loss=${valLoss}`);
+        }
     }
 }

@@ -9,12 +9,13 @@ export async function showPerformanceSummary(
     duration: number,
     valLoss: number,
     boardEvaluator: BoardEvaluator,
+    boardStats: (boards: Board[]) => unknown = boardEvaluator,
 ) {
     const sample = getSampleBoard(boardEvaluator);
     console.log(sample.toString());
-    console.log('Prediction for sample above:', boardEvaluator([sample]));
+    console.log('Prediction for sample above:', boardStats([sample]));
 
-    console.log('Game start prediction:', boardEvaluator([new Board(stdMaxLines)]));
+    console.log('Game start prediction:', boardStats([new Board(stdMaxLines)]));
 
     console.log('Validation loss:', valLoss);
 

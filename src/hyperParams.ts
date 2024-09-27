@@ -21,7 +21,6 @@ export const lookaheadSamplesPerGame = 0;
 export const extraFeatureLen = 2;
 
 export const useCustomFeatures = false;
-export const useBoard = true;
 
 export const validationSplit = 0.2;
 
