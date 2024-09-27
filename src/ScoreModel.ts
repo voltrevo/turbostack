@@ -13,7 +13,7 @@ export type ScoreModelDataPoint = {
     finalScore: number;
 };
 
-const learningRate = 0.001;
+const learningRate = 0.00003;
 
 export class ScoreModel {
     constructor(public tfModel: tf.LayersModel) {}
@@ -36,6 +36,16 @@ export class ScoreModel {
         tensor = tf.layers.leakyReLU({
             alpha: 0.01,
             name: 'newLeakyReLU1',
+        }).apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.dense({
+            units: 16,
+            name: 'newDense1.5',
+        }).apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.leakyReLU({
+            alpha: 0.01,
+            name: 'newLeakyReLU1.5',
         }).apply(tensor) as tf.SymbolicTensor;
 
         tensor = tf.layers.dense({
@@ -227,7 +237,7 @@ function negativeLogLikelihood(yTrue: tf.Tensor, yPred: tf.Tensor) {
     const yTrueValue = yTrue.slice([0, 0], [-1, 1]);
 
     // Convert log(std) to std
-    const std = tf.add(tf.softplus(logStd), 1e-6); // Ensure positive std
+    const std = tf.add(tf.softplus(logStd), 100); // Ensure positive std
     const variance = tf.square(std);
 
     // Negative log-likelihood computation
