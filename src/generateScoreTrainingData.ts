@@ -19,7 +19,8 @@ export function generateScoreTrainingData(
     const trainingData: ScoreModelDataPoint[] = [];
 
     while (trainingData.length < n) {
-        let { positions } = generateGameBoards(new Board(stdMaxLines), boardEvaluator, 1.5);
+        const maxLines = Math.floor(randMinN(2) * stdMaxLines);
+        let { positions } = generateGameBoards(new Board(maxLines), boardEvaluator, 1.5);
 
         if (positions.length === 0) {
             throw new Error('Should not be possible');
@@ -70,6 +71,16 @@ function randMaxN(n: number): number {
 
     for (let i = 0; i < n; i++) {
         max = Math.max(max, Math.random());
+    }
+
+    return max;
+}
+
+function randMinN(n: number): number {
+    let max = 0;
+
+    for (let i = 0; i < n; i++) {
+        max = Math.min(max, Math.random());
     }
 
     return max;
