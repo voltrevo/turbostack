@@ -16,9 +16,7 @@ async function generateAndSaveTrainingData() {
     console.log('generating training data');
     // Generate training data using the board evaluator
 
-    const calc = new WelfordCalculator();
-
-    const limit = 10;
+    const limit = 5;
     let t = Date.now();
 
     let size = 0;
@@ -27,6 +25,15 @@ async function generateAndSaveTrainingData() {
         const newData = generateScoreTrainingData(boardEvaluator, 1);
         size += newData.length;
 
+        for (const x of newData) {
+            const calc = new WelfordCalculator();
+            for (const score of x.finalScoreSamples ?? []) {
+                calc.update(score);
+            }
+
+            console.log(calc.fmt());
+        }
+
         const lineJson = newData.map(({ board, finalScore, finalScoreSamples }) => JSON.stringify({
             board: board.toJson(),
             finalScore,
@@ -34,15 +41,6 @@ async function generateAndSaveTrainingData() {
         })).join('\n');
 
         await fs.appendFile(`./data/dataset/scoreTrainingData-${yyyymmddhh()}.jsonl`, lineJson + '\n');
-
-        const uniqScores = new Set(newData.map(d => d.finalScore));
-
-        for (const score of uniqScores) {
-            calc.update(score);
-        }
-
-        console.log();
-        console.log(calc.fmt());
 
         console.log([
             size.toLocaleString(),
