@@ -77,13 +77,13 @@ function randMaxN(n: number): number {
 }
 
 function randMinN(n: number): number {
-    let max = 0;
+    let min = 1;
 
     for (let i = 0; i < n; i++) {
-        max = Math.min(max, Math.random());
+        min = Math.min(min, Math.random());
     }
 
-    return max;
+    return min;
 }
 
 function augment({ board, boardEvaluator }: {

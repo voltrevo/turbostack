@@ -1,12 +1,12 @@
 import fs from 'fs/promises';
 
 import * as tf from '@tensorflow/tfjs-node';
-import { extraFeatureLen } from './hyperParams';
+import { extraFeatureLen, validationSplit } from './hyperParams';
 import { exists } from './exists';
-import { SplitDataSet } from './SplitDataSet';
 import { Board, MlInputData } from './Board';
 import { BoardEvaluator } from './BoardEvaluator';
 import { PredictionModel } from './PredictionModel';
+import { SplitDataSet2 } from './SplitDataSet2';
 
 export type ScoreModelDataPoint = {
     board: Board;
@@ -92,11 +92,12 @@ export class ScoreModel {
     }
 
     async train(
-        trainingData: SplitDataSet<ScoreModelDataPoint>,
+        trainingData: SplitDataSet2<ScoreModelDataPoint>,
         epochs: number,
     ) {
-        const data = ScoreModel.prepareTrainingData(trainingData.data);
-        const valData = ScoreModel.prepareTrainingData(trainingData.valData);
+        const split = trainingData.all(validationSplit);
+        const data = ScoreModel.prepareTrainingData(split.data);
+        const valData = ScoreModel.prepareTrainingData(split.valData);
 
         await this.tfModel.fit(data.xs, data.ys, {
             epochs,
@@ -115,9 +116,9 @@ export class ScoreModel {
         console.log("Training complete.");
     }
 
-    calculateValLoss(trainingData: SplitDataSet<ScoreModelDataPoint>) {
+    calculateValLoss(trainingData: SplitDataSet2<ScoreModelDataPoint>) {
         // Prepare validation data
-        const valData = ScoreModel.prepareTrainingData(trainingData.valData);
+        const valData = ScoreModel.prepareTrainingData(trainingData.all(validationSplit).valData);
 
         // Get predictions from the model
         const predictions = this.tfModel.predict(valData.xs) as tf.Tensor2D;
@@ -210,21 +211,24 @@ export class ScoreModel {
         };
     }
 
-    static dataSet(tags: (number | string)[] = []): SplitDataSet<ScoreModelDataPoint> {
-        return new SplitDataSet(
-            ['scoreModelData', ...tags].join('-'),
-            ({ board, finalScore }) => ({
+    static dataSet(): SplitDataSet2<ScoreModelDataPoint> {
+        return new SplitDataSet2<ScoreModelDataPoint>(
+            'scoreModelData',
+            Infinity,
+            ({ board, finalScore, finalScoreSamples }) => ({
                 board: board.toJson(),
                 finalScore,
+                finalScoreSamples,
             }),
-            ({ board, finalScore }: any) => ({
+            ({ board, finalScore, finalScoreSamples }: any) => ({
                 board: Board.fromJson(board),
                 finalScore: finalScore,
+                finalScoreSamples,
             }),
         );
     }
 
-    static async loadDataSet(): Promise<SplitDataSet<ScoreModelDataPoint>> {
+    static async loadDataSet(): Promise<SplitDataSet2<ScoreModelDataPoint>> {
         const dataSet = ScoreModel.dataSet();
         await dataSet.load();
 
