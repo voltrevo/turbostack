@@ -8,8 +8,7 @@ async function trainOnSavedData() {
     let model = await ScoreModel.load();
 
     console.log('loading training data');
-    const trainingData = ScoreModel.dataSet();
-    await trainingData.loadMulti();
+    const trainingData = await ScoreModel.loadDataSet();
 
     if (trainingData.size() === 0) {
         throw new Error('Training data not found');
@@ -25,13 +24,13 @@ async function trainOnSavedData() {
             Date.now() - startTime,
             model.calculateValLoss(trainingData),
             boardEvaluator,
-            boards => model.predictMeanStdev(boards),
+            boards => model.predictMean(boards),
         );
 
-        const sampleTrainingData = trainingData.sample(300_000);
+        const sampleTrainingData = trainingData; //.sample(300_000);
 
         // Train the model on the training data
-        await model.train(sampleTrainingData, 10);
+        await model.train(sampleTrainingData, 100);
 
         // Use the updated model to replace the training data
         boardEvaluator = model.createBoardEvaluator();

@@ -5,7 +5,6 @@ import { extraFeatureLen, validationSplit } from './hyperParams';
 import { exists } from './exists';
 import { Board, MlInputData } from './Board';
 import { BoardEvaluator } from './BoardEvaluator';
-import { PredictionModel } from './PredictionModel';
 import { SplitDataSet2 } from './SplitDataSet2';
 
 export type ScoreModelDataPoint = {
@@ -16,57 +15,55 @@ export type ScoreModelDataPoint = {
 
 const learningRate = 0.001;
 
+const spatialShape = [21, 12, 1];
+const extraShape = [extraFeatureLen];
+
 export class ScoreModel {
     constructor(public tfModel: tf.LayersModel) {}
 
     static async create(): Promise<ScoreModel> {
-        const predictionModel = await PredictionModel.load(true);
-        const baseModel = predictionModel.evalModel;
+        const boardInput = tf.input({ shape: spatialShape });
+        const paramsInput = tf.input({ shape: extraShape });
 
-        baseModel.layers.forEach(layer => {
-            layer.trainable = false;
-        });
+        let tensor = tf.layers.conv2d({
+            filters: 8,
+            kernelSize: [5, 3],
+        }).apply(boardInput) as tf.SymbolicTensor;
 
-        let tensor = baseModel.layers[baseModel.layers.length - 3].output;
+        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.conv2d({
+            filters: 16,
+            kernelSize: [1, 10],
+        }).apply(tensor) as tf.SymbolicTensor;
+
+        // tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.flatten().apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.concatenate().apply([
+            tensor,
+            paramsInput,
+        ]) as tf.SymbolicTensor;
 
         tensor = tf.layers.dense({
             units: 16,
-            name: 'newDense1',
         }).apply(tensor) as tf.SymbolicTensor;
 
-        tensor = tf.layers.leakyReLU({
-            alpha: 0.01,
-            name: 'newLeakyReLU1',
-        }).apply(tensor) as tf.SymbolicTensor;
+        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
 
         tensor = tf.layers.dense({
-            units: 16,
-            name: 'newDense1.5',
+            units: 1,
         }).apply(tensor) as tf.SymbolicTensor;
 
-        tensor = tf.layers.leakyReLU({
-            alpha: 0.01,
-            name: 'newLeakyReLU1.5',
-        }).apply(tensor) as tf.SymbolicTensor;
+        const model = tf.model({ inputs: [boardInput, paramsInput], outputs: tensor });
 
-        tensor = tf.layers.dense({
-            units: 2,
-            name: 'newDense2',
-        }).apply(tensor) as tf.SymbolicTensor;
-
-        tensor = tf.layers.leakyReLU({
-            alpha: 0.01,
-            name: 'newLeakyReLU2',
-        }).apply(tensor) as tf.SymbolicTensor;
-
-        const model = tf.model({ inputs: baseModel.inputs, outputs: tensor });
+        model.summary();
 
         model.compile({
             optimizer: tf.train.adam(learningRate),
-            loss: negativeLogLikelihood,
+            loss: 'meanSquaredError',
         });
-
-        model.summary();
 
         return new ScoreModel(model);
     }
@@ -84,8 +81,8 @@ export class ScoreModel {
         const model = await tf.loadLayersModel('file://data/scoreModel/model.json');
 
         model.compile({
-            optimizer: 'adam',
-            loss: negativeLogLikelihood,
+            optimizer: tf.train.adam(learningRate),
+            loss: 'meanSquaredError',
         });
 
         return new ScoreModel(model);
@@ -126,8 +123,7 @@ export class ScoreModel {
         // Extract the actual validation labels (ys)
         const yTrue = valData.ys;
 
-        // Compute negative log-likelihood loss for the validation data
-        const valLossTensor = negativeLogLikelihood(yTrue, predictions);
+        const valLossTensor = tf.losses.meanSquaredError(yTrue, predictions);
 
         // Sum up the loss values
         const valLossSum = valLossTensor.sum().dataSync()[0];
@@ -142,11 +138,11 @@ export class ScoreModel {
 
     createBoardEvaluator(): BoardEvaluator {
         return (boards: Board[]): number[] => {
-            return this.predictMeanStdev(boards).map(({ mean }) => mean);
+            return this.predictMean(boards).map(({ mean }) => mean);
         };
     }
 
-    predictMeanStdev(boards: Board[]): { mean: number; stdev: number }[] {
+    predictMean(boards: Board[]): { mean: number }[] {
         const mlInputData = boards.map(b => b.toMlInputData());
 
         // Extract boards, scores, and lines remaining from the input boards
@@ -169,23 +165,20 @@ export class ScoreModel {
         // Perform batch inference
         const predictions = this.tfModel.predict(inputTensors) as tf.Tensor;
 
-        // predictions is [mean, stdev][], we want mean[]
-        const means = predictions.slice([0, 0], [-1, 1]).dataSync();
-        const stdevs = predictions.slice([0, 1], [-1, 1]).dataSync();
+        const means = predictions.dataSync();
 
         inputTensors.forEach(t => t.dispose());
         predictions.dispose();
 
         return Array.from({ length: boards.length }, (_, i) => ({
             mean: means[i],
-            stdev: stdevs[i],
         }));
     }
 
     static prepareTrainingData(trainingData: ScoreModelDataPoint[]) {
         const boardData: MlInputData['boardData'][] = [];
         const extraData: number[][] = [];
-        const labels: [number, number][] = [];
+        const labels: number[] = [];
 
         trainingData.forEach(({ board, finalScore }) => {
             const { boardData: currBoardData, extraFeatures } = board.toMlInputData();
@@ -194,7 +187,7 @@ export class ScoreModel {
             boardData.push(currBoardData);
             extraData.push([...extraFeatures]);
 
-            labels.push([finalScore, 0]);
+            labels.push(finalScore);
         });
 
         const boardXs = tf.tensor(boardData).reshape([trainingData.length, 21, 12, 1]);
@@ -207,7 +200,7 @@ export class ScoreModel {
 
         return {
             xs,
-            ys: tf.tensor(labels).reshape([trainingData.length, 2])
+            ys: tf.tensor(labels).reshape([trainingData.length, 1])
         };
     }
 

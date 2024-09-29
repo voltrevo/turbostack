@@ -28,6 +28,11 @@ export class SplitDataSet2<T> {
         this.trim();
     }
 
+    setMaxSize(newSize: number) {
+        this.maxSize = newSize;
+        this.trim();
+    }
+
     private trim() {
         const excess = this.allData.length - this.maxSize;
 
@@ -105,6 +110,7 @@ export class SplitDataSet2<T> {
 }
 
 function shuffle<T>(arr: T[], size: number) {
+    size = Math.min(size, arr.length);
     arr = arr.slice();
 
     for (let i = 0; i < size; i++) {

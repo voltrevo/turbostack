@@ -9,18 +9,17 @@ async function feedbackTraining() {
     let model = await ScoreModel.load();
 
     let trainingData = await ScoreModel.loadDataSet();
+    trainingData.setMaxSize(5000);
 
     while (true) {
         // Create a board evaluator using the blank model
         let boardEvaluator = model.createBoardEvaluator();
 
         console.log('generating training data');
-        // Generate training data using the board evaluator
-        trainingData.keepRecent(4000);
 
-        while (trainingData.size() < 5000) {
+        for (let i = 0; i < 10; i++) {
             trainingData.add(generateScoreTrainingData(boardEvaluator, 100));
-            console.log('trainingData.size()', trainingData.size());
+            console.log((i + 1) * 100, 'new samples');
         }
 
         await trainingData.save();
