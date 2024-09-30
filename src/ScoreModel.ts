@@ -15,7 +15,7 @@ export type ScoreModelDataPoint = {
     finalScoreSamples?: number[];
 };
 
-const learningRate = 0.001;
+const learningRate = 0.01;
 
 const spatialShape = [21, 12, 1];
 
