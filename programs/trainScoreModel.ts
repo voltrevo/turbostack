@@ -1,7 +1,7 @@
 import { ScoreModel } from "../src/ScoreModel";
 import { showPerformanceSummary } from "../src/showPerformanceSummary";
 
-async function trainOnSavedData() {
+async function trainScoreModel() {
     const startTime = Date.now();
 
     console.log('loading model');
@@ -39,4 +39,4 @@ async function trainOnSavedData() {
     }
 }
 
-trainOnSavedData().catch(console.error);
+trainScoreModel().catch(console.error);
