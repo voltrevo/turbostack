@@ -30,7 +30,7 @@ async function trainOnSavedData() {
         const sampleTrainingData = trainingData; //.sample(300_000);
 
         // Train the model on the training data
-        await model.train(sampleTrainingData, 100);
+        await model.train(sampleTrainingData, 300);
 
         // Use the updated model to replace the training data
         boardEvaluator = model.createBoardEvaluator();

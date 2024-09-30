@@ -18,7 +18,6 @@ export type ScoreModelDataPoint = {
 const learningRate = 0.001;
 
 const spatialShape = [21, 12, 1];
-const extraShape = [extraFeatureLen];
 
 export class ScoreModel {
     constructor(public tfModel: tf.LayersModel) {}
@@ -134,6 +133,14 @@ export class ScoreModel {
                 new CustomLogger(),
             ],
         });
+
+        for (const d of [data, valData]) {
+            for (const tensor of d.xs) {
+                tensor.dispose();
+            }
+            
+            d.ys.dispose();
+        }
 
         console.log("Training complete.");
     }
