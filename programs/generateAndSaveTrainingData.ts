@@ -57,12 +57,9 @@ async function generateAndSaveTrainingData() {
 
         const dt = Date.now() - t;
         t += dt;
-        const samplesPerSecond = newData.length / (dt / 1000);
+        const generationTime = (dt / 1000) / newData.length;
 
-        console.log(
-            'samples per second:',
-            samplesPerSecond.toFixed(1),
-        );
+        console.log(`generation time: ${generationTime.toFixed(1)}s`);
     }
 }
 

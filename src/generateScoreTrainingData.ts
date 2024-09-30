@@ -27,29 +27,36 @@ export function generateScoreTrainingData(
         }
 
         for (let i = 0; i < deepSamplesPerGame; i++) {
-            let position = positions[Math.floor(positions.length / 2)];
-            const prevBoard = position;
+            const posI = Math.floor(Math.random() * positions.length);
+            let position: Board;
+            let prevBoard: Board;
 
-            const choices = position.findChoices(getRandomPieceType());
+            if (Math.random() < 0.5) {
+                prevBoard = positions[posI];
 
-            if (choices.length === 0) {
-                i--;
-                continue;
+                // model is constantly asked to evaluate all the next choices, so we should train on
+                // that kind of thing
+                const randChoice = applyRandomChoice(prevBoard);
+
+                if (randChoice === undefined) {
+                    i--;
+                    continue;
+                }
+
+                position = randChoice;
+            } else {
+                position = positions[posI];
+                prevBoard = positions[posI - 1] ?? new Board(stdMaxLines);
             }
-
-            // pick a random next move, play that, and train it
-            // (model is constantly asked to evaluate all the next choices, so we should train on that
-            // kind of thing)
-            position = choices[Math.floor(Math.random() * choices.length)];
 
             // Now that we've seeded the position, give the prediction model an amount of lines
             // cleared that is appropriate for training
-            position.lines_cleared_max = (
-                position.lines_cleared +
 
-                // Remaining lines is in the range [0,stdMaxLines) but heavily weighted towards 0
-                Math.floor((1 - randMaxN(3)) * stdMaxLines)
-            );
+            // in the range [0,stdMaxLines) but heavily weighted towards 0
+            const desiredRemainingLines = Math.floor(randMinN(3) * stdMaxLines);
+
+            position.lines_cleared_max = position.lines_cleared + desiredRemainingLines;
+            prevBoard.lines_cleared_max = position.lines_cleared_max;
 
             // Add the pair to the training data
             trainingData.push(augment({
@@ -65,6 +72,16 @@ export function generateScoreTrainingData(
     }
 
     return trainingData;
+}
+
+function applyRandomChoice(board: Board): Board | undefined {
+    const choices = board.findChoices(getRandomPieceType());
+
+    if (choices.length === 0) {
+        return undefined;
+    }
+
+    return choices[Math.floor(Math.random() * choices.length)];
 }
 
 function randMaxN(n: number): number {
