@@ -6,7 +6,6 @@ import { exists } from './exists';
 import { Board, MlInputData } from './Board';
 import { BoardEvaluator } from './BoardEvaluator';
 import { SplitDataSet2 } from './SplitDataSet2';
-import { MiniScoreModel } from './MiniScoreModel';
 import { PredictionModel } from './PredictionModel';
 
 export type ScoreModelDataPoint = {
@@ -16,7 +15,7 @@ export type ScoreModelDataPoint = {
     finalScoreSamples?: number[];
 };
 
-const learningRate = 0.0001;
+const learningRate = 0.001;
 
 const spatialShape = [21, 12, 1];
 const extraShape = [extraFeatureLen];
@@ -26,21 +25,14 @@ export class ScoreModel {
 
     static async create(): Promise<ScoreModel> {
         const boardInput = tf.input({ shape: spatialShape });
-        const paramsInput = tf.input({ shape: extraShape });
-
-        const { tfModel: miniModel } = await MiniScoreModel.load(true);
-
-        for (const layer of miniModel.layers) {
-            layer.trainable = false;
-        }
+        const scoreInput = tf.input({ shape: [1] });
+        const linesRemainingInput = tf.input({ shape: [1] });
 
         const featuresModel = (await PredictionModel.load(true)).featuresModel();
 
         for (const layer of featuresModel.layers) {
             layer.trainable = false;
         }
-
-        let miniOutput = miniModel.apply(paramsInput) as tf.SymbolicTensor;
         
         let tensor = featuresModel.apply(boardInput) as tf.SymbolicTensor;
 
@@ -48,7 +40,7 @@ export class ScoreModel {
 
         tensor = tf.layers.concatenate().apply([
             tensor,
-            paramsInput,
+            linesRemainingInput,
         ]) as tf.SymbolicTensor;
 
         tensor = tf.layers.dense({
@@ -80,9 +72,16 @@ export class ScoreModel {
             name: 'score_preoutput',
         }).apply(tensor) as tf.SymbolicTensor;
 
-        tensor = tf.layers.add().apply([tensor, miniOutput]) as tf.SymbolicTensor;
+        tensor = tf.layers.add().apply([tensor, scoreInput]) as tf.SymbolicTensor;
 
-        const model = tf.model({ inputs: [boardInput, paramsInput], outputs: tensor });
+        const model = tf.model({
+            inputs: [
+                boardInput,
+                scoreInput,
+                linesRemainingInput,
+            ],
+            outputs: tensor,
+        });
 
         model.summary();
 
@@ -173,20 +172,15 @@ export class ScoreModel {
 
         // Extract boards, scores, and lines remaining from the input boards
         const boardData: Uint8Array[] = mlInputData.map(d => d.boardData);
-        const extraData: number[][] = mlInputData.map(d => [...d.extraFeatures]);
+        const scoreData: number[] = mlInputData.map(d => d.score);
+        const linesRemainingData: number[] = mlInputData.map(d => d.linesRemaining);
 
         // Prepare tensors for the model
-        const inputTensors: tf.Tensor<tf.Rank>[] = [];
-
-        inputTensors.push(
-            // Shape: [batchSize, rows, cols, channels]
+        const inputTensors: tf.Tensor<tf.Rank>[] = [
             tf.tensor(boardData).reshape([boards.length, 21, 12, 1]),
-        );
-
-        inputTensors.push(
-            // Shape: [batchSize, extraFeatureLen]
-            tf.tensor(extraData).reshape([boards.length, extraFeatureLen]),
-        );
+            tf.tensor(scoreData).reshape([boards.length, 1]),
+            tf.tensor(linesRemainingData).reshape([boards.length, 1]),
+        ];
 
         // Perform batch inference
         const predictions = this.tfModel.predict(inputTensors) as tf.Tensor;
@@ -203,26 +197,26 @@ export class ScoreModel {
 
     static prepareTrainingData(trainingData: ScoreModelDataPoint[]) {
         const boardData: MlInputData['boardData'][] = [];
-        const extraData: number[][] = [];
+        const scoreData: number[] = [];
+        const linesRemainingData: number[] = [];
         const labels: number[] = [];
 
         trainingData.forEach(({ board, finalScore }) => {
-            const { boardData: currBoardData, extraFeatures } = board.toMlInputData();
+            const { boardData: currBoardData, score, linesRemaining } = board.toMlInputData();
 
             // Use the board data directly, as it is already in the [row][column][channel] format
             boardData.push(currBoardData);
-            extraData.push([...extraFeatures]);
+            scoreData.push(score);
+            linesRemainingData.push(linesRemaining);
 
             labels.push(finalScore);
         });
 
-        const boardXs = tf.tensor(boardData).reshape([trainingData.length, 21, 12, 1]);
-        const extraXs = tf.tensor(extraData).reshape([trainingData.length, extraFeatureLen]);
-
-        const xs = [];
-
-        xs.push(boardXs);
-        xs.push(extraXs);
+        const xs = [
+            tf.tensor(boardData).reshape([trainingData.length, 21, 12, 1]),
+            tf.tensor(scoreData).reshape([trainingData.length, 1]),
+            tf.tensor(linesRemainingData).reshape([trainingData.length, 1]),
+        ];
 
         return {
             xs,

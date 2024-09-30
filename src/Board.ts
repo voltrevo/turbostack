@@ -493,6 +493,8 @@ export class Board {
 
         return {
             boardData,
+            score: this.score,
+            linesRemaining: this.linesRemaining(),
             extraFeatures,
         };
     }
