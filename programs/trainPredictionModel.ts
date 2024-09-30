@@ -51,6 +51,7 @@ async function trainPredictionModel() {
         if (newValLoss < bestValLoss) {
             bestValLoss = newValLoss;
             await model.save();
+            console.log('saved updated model');
         }
     }
 }
