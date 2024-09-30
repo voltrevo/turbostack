@@ -31,6 +31,12 @@ async function generateAndSaveTrainingData() {
                 calc.update(score);
             }
 
+            if (x.prevBoard) {
+                console.log(x.board.toStringDiff(x.prevBoard));
+            } else {
+                console.log(x.board.toString());
+            }
+
             console.log(calc.fmt());
         }
 
