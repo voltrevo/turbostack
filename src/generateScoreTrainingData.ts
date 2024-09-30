@@ -109,12 +109,12 @@ async function augment({ prevBoard, board, boardEvaluator }: {
     board: Board;
     boardEvaluator: BoardEvaluator;
 }): Promise<ScoreModelDataPoint> {
-    const scores = []
-
-    while (scores.length < nPlayoutsToAvg) {
-        const { finalScore } = await generateGameBoards(board, boardEvaluator);
-        scores.push(finalScore);
-    }
+    const scores = await Promise.all(
+        Array.from({ length: nPlayoutsToAvg }).map(async () => {
+            const { finalScore } = await generateGameBoards(board, boardEvaluator);
+            return finalScore;
+        }),
+    );
 
     const avgScore = scores.reduce((a, b) => a + b) / scores.length;
 
