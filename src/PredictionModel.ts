@@ -32,18 +32,18 @@ export class PredictionModel {
         const paramsInput = tf.input({ shape: extraShape });
 
         let tensor = tf.layers.conv2d({
-            filters: 16,
+            filters: 8,
             kernelSize: [5, 3],
         }).apply(boardInput) as tf.SymbolicTensor;
 
         tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
 
         tensor = tf.layers.conv2d({
-            filters: 64,
+            filters: 16,
             kernelSize: [1, 10],
         }).apply(tensor) as tf.SymbolicTensor;
 
-        // tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
+        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
 
         tensor = tf.layers.flatten().apply(tensor) as tf.SymbolicTensor;
 
@@ -58,18 +58,21 @@ export class PredictionModel {
 
         tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
 
-        // tensor = tf.layers.dense({
-        //     units: 8,
-        //     activation: 'relu',
-        // }).apply(tensor) as tf.SymbolicTensor;
+        let prev = tensor;
+
+        tensor = tf.layers.dense({
+            units: 16,
+        }).apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
+
+        tensor = tf.layers.add().apply([tensor, prev]) as tf.SymbolicTensor;
 
         // tensor = tf.layers.dropout({ rate: 0.2 }).apply(tensor) as tf.SymbolicTensor;
 
         tensor = tf.layers.dense({
             units: 1,
         }).apply(tensor) as tf.SymbolicTensor;
-
-        tensor = tf.layers.leakyReLU({ alpha: 0.01 }).apply(tensor) as tf.SymbolicTensor;
 
         const model = tf.model({ inputs: [boardInput, paramsInput], outputs: tensor });
 
@@ -119,6 +122,18 @@ export class PredictionModel {
         const combinedModel = PredictionModel.createCombinedModel(evalModel);
 
         return new PredictionModel(evalModel, combinedModel);
+    }
+
+    featuresModel(): tf.LayersModel {
+        const boardInput = tf.input({ shape: spatialShape });
+
+        let tensor = boardInput;
+
+        for (const layer of this.evalModel.layers.slice(1, 5)) {
+            tensor = layer.apply(tensor) as tf.SymbolicTensor;
+        }
+        
+        return tf.model({ inputs: boardInput, outputs: tensor });
     }
 
     setLearningRate(learningRate: number) {
