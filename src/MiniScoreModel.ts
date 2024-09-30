@@ -3,86 +3,39 @@ import fs from 'fs/promises';
 import * as tf from '@tensorflow/tfjs-node';
 import { extraFeatureLen, validationSplit } from './hyperParams';
 import { exists } from './exists';
-import { Board, MlInputData } from './Board';
+import { Board } from './Board';
 import { BoardEvaluator } from './BoardEvaluator';
 import { SplitDataSet2 } from './SplitDataSet2';
-import { MiniScoreModel } from './MiniScoreModel';
-import { PredictionModel } from './PredictionModel';
+import { ScoreModelDataPoint } from './ScoreModel';
 
-export type ScoreModelDataPoint = {
-    prevBoard?: Board;
-    board: Board;
-    finalScore: number;
-    finalScoreSamples?: number[];
-};
+const learningRate = 0.001;
 
-const learningRate = 0.0001;
-
-const spatialShape = [21, 12, 1];
 const extraShape = [extraFeatureLen];
 
-export class ScoreModel {
+export class MiniScoreModel {
     constructor(public tfModel: tf.LayersModel) {}
 
-    static async create(): Promise<ScoreModel> {
-        const boardInput = tf.input({ shape: spatialShape });
+    static async create(): Promise<MiniScoreModel> {
         const paramsInput = tf.input({ shape: extraShape });
 
-        const { tfModel: miniModel } = await MiniScoreModel.load(true);
-
-        for (const layer of miniModel.layers) {
-            layer.trainable = false;
-        }
-
-        const featuresModel = (await PredictionModel.load(true)).featuresModel();
-
-        for (const layer of featuresModel.layers) {
-            layer.trainable = false;
-        }
-
-        let miniOutput = miniModel.apply(paramsInput) as tf.SymbolicTensor;
-        
-        let tensor = featuresModel.apply(boardInput) as tf.SymbolicTensor;
-
-        tensor = tf.layers.flatten().apply(tensor) as tf.SymbolicTensor;
-
-        tensor = tf.layers.concatenate().apply([
-            tensor,
-            paramsInput,
-        ]) as tf.SymbolicTensor;
+        let tensor = paramsInput;
 
         tensor = tf.layers.dense({
             units: 16,
-            name: 'score_dense1',
+            name: 'mini_dense1',
         }).apply(tensor) as tf.SymbolicTensor;
 
         tensor = tf.layers.leakyReLU({
             alpha: 0.01,
-            name: 'score_leaky1',
+            name: 'mini_leaky1',
         }).apply(tensor) as tf.SymbolicTensor;
-
-        let prev = tensor;
-
-        tensor = tf.layers.dense({
-            units: 16,
-            name: 'score_dense2',
-        }).apply(tensor) as tf.SymbolicTensor;
-
-        tensor = tf.layers.leakyReLU({
-            alpha: 0.01,
-            name: 'score_leaky2',
-        }).apply(tensor) as tf.SymbolicTensor;
-
-        tensor = tf.layers.add().apply([tensor, prev]) as tf.SymbolicTensor;
 
         tensor = tf.layers.dense({
             units: 1,
-            name: 'score_preoutput',
+            name: 'mini_dense2',
         }).apply(tensor) as tf.SymbolicTensor;
 
-        tensor = tf.layers.add().apply([tensor, miniOutput]) as tf.SymbolicTensor;
-
-        const model = tf.model({ inputs: [boardInput, paramsInput], outputs: tensor });
+        const model = tf.model({ inputs: [paramsInput], outputs: tensor });
 
         model.summary();
 
@@ -91,27 +44,31 @@ export class ScoreModel {
             loss: 'meanSquaredError',
         });
 
-        return new ScoreModel(model);
+        return new MiniScoreModel(model);
     }
 
     async save() {
-        await fs.mkdir('data/scoreModel', { recursive: true });
-        await this.tfModel.save('file://data/scoreModel');
+        await fs.mkdir('data/miniScoreModel', { recursive: true });
+        await this.tfModel.save('file://data/miniScoreModel');
     }
 
-    static async load() {
-        if (!(await exists('data/scoreModel'))) {
-            return await ScoreModel.create();
+    static async load(mustExist = false) {
+        if (!(await exists('data/miniScoreModel'))) {
+            if (mustExist) {
+                throw new Error('Model not found');
+            }
+
+            return await MiniScoreModel.create();
         }
 
-        const model = await tf.loadLayersModel('file://data/scoreModel/model.json');
+        const model = await tf.loadLayersModel('file://data/miniScoreModel/model.json');
 
         model.compile({
             optimizer: tf.train.adam(learningRate),
             loss: 'meanSquaredError',
         });
 
-        return new ScoreModel(model);
+        return new MiniScoreModel(model);
     }
 
     async train(
@@ -119,8 +76,8 @@ export class ScoreModel {
         epochs: number,
     ) {
         const split = trainingData.all(validationSplit);
-        const data = ScoreModel.prepareTrainingData(split.data);
-        const valData = ScoreModel.prepareTrainingData(split.valData);
+        const data = MiniScoreModel.prepareTrainingData(split.data);
+        const valData = MiniScoreModel.prepareTrainingData(split.valData);
 
         await this.tfModel.fit(data.xs, data.ys, {
             epochs,
@@ -132,7 +89,6 @@ export class ScoreModel {
                 //     monitor: 'val_loss',
                 //     patience: 20,
                 // }),
-                new CustomLogger(),
             ],
         });
 
@@ -141,7 +97,7 @@ export class ScoreModel {
 
     calculateValLoss(trainingData: SplitDataSet2<ScoreModelDataPoint>) {
         // Prepare validation data
-        const valData = ScoreModel.prepareTrainingData(trainingData.all(validationSplit).valData);
+        const valData = MiniScoreModel.prepareTrainingData(trainingData.all(validationSplit).valData);
 
         // Get predictions from the model
         const predictions = this.tfModel.predict(valData.xs) as tf.Tensor2D;
@@ -171,17 +127,10 @@ export class ScoreModel {
     predictMean(boards: Board[]): { mean: number }[] {
         const mlInputData = boards.map(b => b.toMlInputData());
 
-        // Extract boards, scores, and lines remaining from the input boards
-        const boardData: Uint8Array[] = mlInputData.map(d => d.boardData);
         const extraData: number[][] = mlInputData.map(d => [...d.extraFeatures]);
 
         // Prepare tensors for the model
         const inputTensors: tf.Tensor<tf.Rank>[] = [];
-
-        inputTensors.push(
-            // Shape: [batchSize, rows, cols, channels]
-            tf.tensor(boardData).reshape([boards.length, 21, 12, 1]),
-        );
 
         inputTensors.push(
             // Shape: [batchSize, extraFeatureLen]
@@ -202,26 +151,21 @@ export class ScoreModel {
     }
 
     static prepareTrainingData(trainingData: ScoreModelDataPoint[]) {
-        const boardData: MlInputData['boardData'][] = [];
         const extraData: number[][] = [];
         const labels: number[] = [];
 
         trainingData.forEach(({ board, finalScore }) => {
-            const { boardData: currBoardData, extraFeatures } = board.toMlInputData();
+            const { extraFeatures } = board.toMlInputData();
 
-            // Use the board data directly, as it is already in the [row][column][channel] format
-            boardData.push(currBoardData);
             extraData.push([...extraFeatures]);
 
             labels.push(finalScore);
         });
 
-        const boardXs = tf.tensor(boardData).reshape([trainingData.length, 21, 12, 1]);
         const extraXs = tf.tensor(extraData).reshape([trainingData.length, extraFeatureLen]);
 
         const xs = [];
 
-        xs.push(boardXs);
         xs.push(extraXs);
 
         return {
@@ -248,45 +192,9 @@ export class ScoreModel {
     }
 
     static async loadDataSet(): Promise<SplitDataSet2<ScoreModelDataPoint>> {
-        const dataSet = ScoreModel.dataSet();
+        const dataSet = MiniScoreModel.dataSet();
         await dataSet.load();
 
         return dataSet;
-    }
-}
-
-function negativeLogLikelihood(yTrue: tf.Tensor, yPred: tf.Tensor) {
-    // Predicted mean and log(std)
-    const mean = yPred.slice([0, 0], [-1, 1]);
-    const logStd = yPred.slice([0, 1], [-1, 1]);
-
-    // Actual y values from yTrue (first column)
-    const yTrueValue = yTrue.slice([0, 0], [-1, 1]);
-
-    // Convert log(std) to std
-    const std = tf.add(tf.softplus(logStd), 100); // Ensure positive std
-    const variance = tf.square(std);
-
-    // Negative log-likelihood computation
-    const logLikelihood = tf.add(
-        tf.div(tf.square(tf.sub(yTrueValue, mean)), tf.mul(2, variance)), // (yTrue - mean)^2 / (2 * variance)
-        tf.log(std) // log(std)
-    ).add(0.5 * Math.log(2 * Math.PI)); // Constant term
-
-    // Return mean negative log-likelihood
-    return tf.mean(logLikelihood);
-}
-
-class CustomLogger extends tf.CustomCallback {
-    constructor() {
-        super({});
-    }
-
-    async onEpochEnd(epoch: number, logs?: tf.Logs) {
-        if (logs) {
-            // const loss = logs.loss?.toFixed(6); // More decimal places
-            // const valLoss = logs.val_loss?.toFixed(6); // More decimal places
-            console.log(`Epoch ${epoch + 1}: loss=${Math.sqrt(logs.loss).toFixed(2)}, val_loss=${Math.sqrt(logs.val_loss).toFixed(2)}`);
-        }
     }
 }
