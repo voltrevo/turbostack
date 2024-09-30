@@ -1,12 +1,13 @@
 import fs from 'fs/promises';
 
 import * as tf from '@tensorflow/tfjs-node';
-import { extraFeatureLen, validationSplit } from './hyperParams';
+import { validationSplit } from './hyperParams';
 import { exists } from './exists';
 import { Board, MlInputData } from './Board';
-import { BoardEvaluator, createBatchBoardEvaluator } from './BoardEvaluator';
+import { BoardEvaluator } from './BoardEvaluator';
 import { SplitDataSet2 } from './SplitDataSet2';
 import { PredictionModel } from './PredictionModel';
+import BatchProcessor from './BatchProcessor';
 
 export type ScoreModelDataPoint = {
     prevBoard?: Board;
@@ -172,16 +173,17 @@ export class ScoreModel {
 
     createBoardEvaluator(): BoardEvaluator {
         if (!this.batchBoardEvaluator) {
-            this.batchBoardEvaluator = createBatchBoardEvaluator(
-                boards => this.predictMean(boards).map(({ mean }) => mean),
+            this.batchBoardEvaluator = BatchProcessor.create(
+                boards => this.coreBoardEvaluator(boards),
                 512,
-                0,
             );
         }
 
         return this.batchBoardEvaluator;
+    }
 
-        // return boards => Promise.resolve(this.predictMean(boards).map(({ mean }) => mean));
+    coreBoardEvaluator(boards: Board[]): number[] {
+        return this.predictMean(boards).map(({ mean }) => mean);
     }
 
     predictMean(boards: Board[]): { mean: number }[] {

@@ -7,6 +7,7 @@ import { SplitDataSet } from './SplitDataSet';
 import { Board } from './Board';
 import { BoardEvaluator } from './BoardEvaluator';
 import { ALL_PIECE_TYPES, PIECE_GRIDS } from './PieceType';
+import BatchProcessor from './BatchProcessor';
 
 export type PredictionModelDataPoint = {
     from: Board;
@@ -183,34 +184,45 @@ export class PredictionModel {
         return valLoss / valData.xs[0].shape[0];
     }
 
+    batchBoardEvaluator?: BoardEvaluator;
+
     createBoardEvaluator(): BoardEvaluator {
-        return async (boards: Board[]): Promise<number[]> => {
-            const mlInputData = boards.map(b => b.toMlInputData());
-
-            // Extract boards, scores, and lines remaining from the input boards
-            const boardData: Uint8Array[] = mlInputData.map(d => d.boardData);
-            const extraData: number[][] = mlInputData.map(d => [...d.extraFeatures]);
-
-            // Prepare tensors for the model
-            const inputTensors: tf.Tensor<tf.Rank>[] = [];
-
-            inputTensors.push(
-                // Shape: [batchSize, rows, cols, channels]
-                tf.tensor(boardData).reshape([boards.length, 21, 12, 1]),
+        if (!this.batchBoardEvaluator) {
+            this.batchBoardEvaluator = BatchProcessor.create(
+                boards => this.coreBoardEvaluator(boards),
+                512,
             );
+        }
 
-            inputTensors.push(
-                // Shape: [batchSize, extraFeatureLen]
-                tf.tensor(extraData).reshape([boards.length, extraFeatureLen]),
-            );
+        return this.batchBoardEvaluator;
+    }
 
-            // Perform batch inference
-            const evals = this.evalModel.predict(inputTensors) as tf.Tensor;
+    coreBoardEvaluator(boards: Board[]): number[] {
+        const mlInputData = boards.map(b => b.toMlInputData());
 
-            // Get the evals as a flat array
-            // Convert Float32Array to a normal array
-            return Array.from(evals.dataSync());
-        };
+        // Extract boards, scores, and lines remaining from the input boards
+        const boardData: Uint8Array[] = mlInputData.map(d => d.boardData);
+        const extraData: number[][] = mlInputData.map(d => [...d.extraFeatures]);
+
+        // Prepare tensors for the model
+        const inputTensors: tf.Tensor<tf.Rank>[] = [];
+
+        inputTensors.push(
+            // Shape: [batchSize, rows, cols, channels]
+            tf.tensor(boardData).reshape([boards.length, 21, 12, 1]),
+        );
+
+        inputTensors.push(
+            // Shape: [batchSize, extraFeatureLen]
+            tf.tensor(extraData).reshape([boards.length, extraFeatureLen]),
+        );
+
+        // Perform batch inference
+        const evals = this.evalModel.predict(inputTensors) as tf.Tensor;
+
+        // Get the evals as a flat array
+        // Convert Float32Array to a normal array
+        return Array.from(evals.dataSync());
     }
 
     static prepareTrainingData(trainingData: PredictionModelDataPoint[]) {
