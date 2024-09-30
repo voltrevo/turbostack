@@ -155,7 +155,7 @@ export class ScoreModel {
         // Extract the actual validation labels (ys)
         const yTrue = valData.ys;
 
-        const valLossTensor = tf.losses.meanSquaredError(yTrue, predictions);
+        const valLossTensor = tf.metrics.meanSquaredError(yTrue, predictions);
 
         // Sum up the loss values
         const valLossSum = valLossTensor.sum().dataSync()[0];
@@ -165,7 +165,7 @@ export class ScoreModel {
         predictions.dispose();
 
         // Return average validation loss
-        return valLossSum / valData.xs[0].shape[0];
+        return Math.sqrt(valLossSum / valData.xs[0].shape[0]);
     }
 
     createBoardEvaluator(): BoardEvaluator {
