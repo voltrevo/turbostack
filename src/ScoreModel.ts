@@ -4,7 +4,7 @@ import * as tf from '@tensorflow/tfjs-node';
 import { extraFeatureLen, validationSplit } from './hyperParams';
 import { exists } from './exists';
 import { Board, MlInputData } from './Board';
-import { BoardEvaluator } from './BoardEvaluator';
+import { BoardEvaluator, createBatchBoardEvaluator } from './BoardEvaluator';
 import { SplitDataSet2 } from './SplitDataSet2';
 import { PredictionModel } from './PredictionModel';
 
@@ -168,13 +168,23 @@ export class ScoreModel {
         return Math.sqrt(valLossSum / valData.xs[0].shape[0]);
     }
 
+    batchBoardEvaluator?: BoardEvaluator;
+
     createBoardEvaluator(): BoardEvaluator {
-        return async (boards: Board[]): Promise<number[]> => {
-            return (await this.predictMean(boards)).map(({ mean }) => mean);
-        };
+        if (!this.batchBoardEvaluator) {
+            this.batchBoardEvaluator = createBatchBoardEvaluator(
+                boards => this.predictMean(boards).map(({ mean }) => mean),
+                512,
+                0,
+            );
+        }
+
+        return this.batchBoardEvaluator;
+
+        // return boards => Promise.resolve(this.predictMean(boards).map(({ mean }) => mean));
     }
 
-    async predictMean(boards: Board[]): Promise<{ mean: number }[]> {
+    predictMean(boards: Board[]): { mean: number }[] {
         const mlInputData = boards.map(b => b.toMlInputData());
 
         // Extract boards, scores, and lines remaining from the input boards
