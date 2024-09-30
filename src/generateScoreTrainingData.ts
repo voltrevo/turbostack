@@ -19,25 +19,32 @@ export function generateScoreTrainingData(
     const trainingData: ScoreModelDataPoint[] = [];
 
     while (trainingData.length < n) {
-        const maxLines = Math.floor(randMinN(2) * stdMaxLines);
-        let { positions } = generateGameBoards(new Board(maxLines), boardEvaluator, 1.5);
+        const maxLines = Math.floor(stdMaxLines);
+        let { positions } = generateGameBoards(new Board(maxLines), boardEvaluator);
 
         if (positions.length === 0) {
             throw new Error('Should not be possible');
         }
 
         for (let i = 0; i < deepSamplesPerGame; i++) {
-            const position = positions[Math.floor(randMaxN(2) * positions.length)];
+            let position = positions[Math.floor(randMaxN(3) * positions.length)];
+            const prevBoard = position;
 
-            // // pick a random next move, play that, and train it
-            // // (model is constantly asked to evaluate all the next choices, so we should train on that
-            // // kind of thing as well as 'good' positions)
-            // const randomChoice = choices[Math.floor(Math.random() * choices.length)];
-            // const { finalScore } = generateGameBoards(randomChoice, boardEvaluator);
-            // const { finalScore } = generateGameBoards(position, boardEvaluator);
+            const choices = position.findChoices(getRandomPieceType());
+
+            if (choices.length === 0) {
+                i--;
+                continue;
+            }
+
+            // pick a random next move, play that, and train it
+            // (model is constantly asked to evaluate all the next choices, so we should train on that
+            // kind of thing)
+            position = choices[Math.floor(Math.random() * choices.length)];
 
             // Add the pair to the training data
             trainingData.push(augment({
+                prevBoard,
                 board: position,
                 boardEvaluator,
             }));
@@ -86,7 +93,8 @@ function randMinN(n: number): number {
     return min;
 }
 
-function augment({ board, boardEvaluator }: {
+function augment({ prevBoard, board, boardEvaluator }: {
+    prevBoard: Board;
     board: Board;
     boardEvaluator: BoardEvaluator;
 }): ScoreModelDataPoint {
@@ -100,6 +108,7 @@ function augment({ board, boardEvaluator }: {
     const avgScore = scores.reduce((a, b) => a + b) / scores.length;
 
     return {
+        prevBoard,
         board,
         finalScore: avgScore,
         finalScoreSamples: scores,
