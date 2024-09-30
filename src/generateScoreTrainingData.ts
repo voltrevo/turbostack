@@ -12,15 +12,15 @@ import { BoardEvaluator } from './BoardEvaluator';
  * @param n - Number of games to simulate.
  * @returns Array of training data pairs (mlData, finalScore).
  */
-export function generateScoreTrainingData(
+export async function generateScoreTrainingData(
     scoreBoardEvaluator: BoardEvaluator,
     predictionBoardEvaluator: BoardEvaluator,
     n: number,
-): ScoreModelDataPoint[] {
+): Promise<ScoreModelDataPoint[]> {
     const trainingData: ScoreModelDataPoint[] = [];
 
     while (trainingData.length < n) {
-        let { positions } = generateGameBoards(new Board(stdMaxLines), scoreBoardEvaluator);
+        let { positions } = await generateGameBoards(new Board(stdMaxLines), scoreBoardEvaluator);
 
         if (positions.length === 0) {
             throw new Error('Should not be possible');
@@ -59,7 +59,7 @@ export function generateScoreTrainingData(
             prevBoard.lines_cleared_max = position.lines_cleared_max;
 
             // Add the pair to the training data
-            trainingData.push(augment({
+            trainingData.push(await augment({
                 prevBoard,
                 board: position,
                 boardEvaluator: predictionBoardEvaluator,
@@ -104,15 +104,15 @@ function randMinN(n: number): number {
     return min;
 }
 
-function augment({ prevBoard, board, boardEvaluator }: {
+async function augment({ prevBoard, board, boardEvaluator }: {
     prevBoard: Board;
     board: Board;
     boardEvaluator: BoardEvaluator;
-}): ScoreModelDataPoint {
+}): Promise<ScoreModelDataPoint> {
     const scores = []
 
     while (scores.length < nPlayoutsToAvg) {
-        const { finalScore } = generateGameBoards(board, boardEvaluator);
+        const { finalScore } = await generateGameBoards(board, boardEvaluator);
         scores.push(finalScore);
     }
 
@@ -126,10 +126,10 @@ function augment({ prevBoard, board, boardEvaluator }: {
     };
 }
 
-function augmentLookahead({ board, boardEvaluator }: {
+async function augmentLookahead({ board, boardEvaluator }: {
     board: Board;
     boardEvaluator: BoardEvaluator;
-}): ScoreModelDataPoint {
+}): Promise<ScoreModelDataPoint> {
     const scores = [];
 
     for (const p of ALL_PIECE_TYPES) {
@@ -141,7 +141,7 @@ function augmentLookahead({ board, boardEvaluator }: {
         }
 
         // Use evalBoard to evaluate each possible board
-        const choiceEvals = boardEvaluator(choices);
+        const choiceEvals = await boardEvaluator(choices);
 
         // Find the board with the highest evalScore
         choiceEvals.sort((a, b) => b - a);

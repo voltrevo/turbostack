@@ -169,12 +169,12 @@ export class ScoreModel {
     }
 
     createBoardEvaluator(): BoardEvaluator {
-        return (boards: Board[]): number[] => {
-            return this.predictMean(boards).map(({ mean }) => mean);
+        return async (boards: Board[]): Promise<number[]> => {
+            return (await this.predictMean(boards)).map(({ mean }) => mean);
         };
     }
 
-    predictMean(boards: Board[]): { mean: number }[] {
+    async predictMean(boards: Board[]): Promise<{ mean: number }[]> {
         const mlInputData = boards.map(b => b.toMlInputData());
 
         // Extract boards, scores, and lines remaining from the input boards

@@ -1,6 +1,5 @@
 import { Board } from "../src/Board";
 import { stdMaxLines } from "../src/hyperParams";
-import { MiniScoreModel } from "../src/MiniScoreModel";
 import { ScoreModel } from "../src/ScoreModel";
 
 async function predict() {
@@ -11,7 +10,7 @@ async function predict() {
     boardB.score = 4000;
 
     const model = await ScoreModel.load();
-    const [a, b] = model.predictMean([boardA, boardB]);
+    const [a, b] = await model.predictMean([boardA, boardB]);
 
     console.log(b.mean - a.mean);
 }

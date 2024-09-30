@@ -4,7 +4,7 @@ import { getRandomPieceType } from "./PieceType";
 import { BoardEvaluator } from "./BoardEvaluator";
 import softmax from "./softmax";
 
-export function generateGameBoards(board: Board, boardEvaluator: BoardEvaluator, temperature = 0) {
+export async function generateGameBoards(board: Board, boardEvaluator: BoardEvaluator, temperature = 0) {
     const positions: Board[] = [];
 
     // enough for 1000 lines, should not be possible
@@ -38,7 +38,7 @@ export function generateGameBoards(board: Board, boardEvaluator: BoardEvaluator,
         }
 
         // Use evalBoard to evaluate each possible board
-        const evaluatedChoices = softmax(boardEvaluator(choices), temperature);
+        const evaluatedChoices = softmax(await boardEvaluator(choices), temperature);
 
         let rand = Math.random();
 

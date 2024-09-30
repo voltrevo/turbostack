@@ -7,7 +7,7 @@ import { ScoreModel } from "../src/ScoreModel";
 async function showSampleGame() {
     const model = await ScoreModel.load();
 
-    const { positions } = generateGameBoards(
+    const { positions } = await generateGameBoards(
         new Board(stdMaxLines),
         model.createBoardEvaluator(),
     );

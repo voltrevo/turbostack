@@ -184,7 +184,7 @@ export class PredictionModel {
     }
 
     createBoardEvaluator(): BoardEvaluator {
-        return (boards: Board[]): number[] => {
+        return async (boards: Board[]): Promise<number[]> => {
             const mlInputData = boards.map(b => b.toMlInputData());
 
             // Extract boards, scores, and lines remaining from the input boards

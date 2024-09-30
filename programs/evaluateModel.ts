@@ -15,7 +15,7 @@ async function evaluateModel() {
 
     while (true) {
         for (let i = 0; i < 10; i++) {
-            const { finalScore } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
+            const { finalScore } = await generateGameBoards(new Board(stdMaxLines), boardEvaluator);
             calc.update(finalScore);
         }
 

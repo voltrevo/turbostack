@@ -24,7 +24,12 @@ async function generateAndSaveTrainingData() {
     let size = 0;
 
     while (size < limit) {
-        const newData = generateScoreTrainingData(scoreBoardEvaluator, predictionBoardEvaluator, 1);
+        const newData = await generateScoreTrainingData(
+            scoreBoardEvaluator,
+            predictionBoardEvaluator,
+            1,
+        );
+
         size += newData.length;
 
         for (const x of newData) {

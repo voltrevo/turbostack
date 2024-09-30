@@ -11,7 +11,7 @@ export async function showPerformanceSummary(
     boardEvaluator: BoardEvaluator,
     boardStats: (boards: Board[]) => unknown = boardEvaluator,
 ) {
-    const sample = getSampleBoard(boardEvaluator);
+    const sample = await getSampleBoard(boardEvaluator);
     console.log(sample.toString());
     console.log('Prediction for sample above:', boardStats([sample]));
 
@@ -22,7 +22,7 @@ export async function showPerformanceSummary(
     const calc = new WelfordCalculator();
 
     for (let i = 0; i < 30; i++) {
-        const { finalScore } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
+        const { finalScore } = await generateGameBoards(new Board(stdMaxLines), boardEvaluator);
         calc.update(finalScore);
     }
 
@@ -34,8 +34,8 @@ export async function showPerformanceSummary(
     await addPerfLog(durationMinutes, valLoss, calc.fmt());
 }
 
-function getSampleBoard(boardEvaluator: BoardEvaluator) {
-    const { positions } = generateGameBoards(new Board(stdMaxLines), boardEvaluator);
+async function getSampleBoard(boardEvaluator: BoardEvaluator) {
+    const { positions } = await generateGameBoards(new Board(stdMaxLines), boardEvaluator);
 
     if (positions.length === 0) {
         throw new Error('Should not be possible');
