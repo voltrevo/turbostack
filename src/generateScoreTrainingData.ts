@@ -13,21 +13,21 @@ import { BoardEvaluator } from './BoardEvaluator';
  * @returns Array of training data pairs (mlData, finalScore).
  */
 export function generateScoreTrainingData(
-    boardEvaluator: BoardEvaluator,
+    scoreBoardEvaluator: BoardEvaluator,
+    predictionBoardEvaluator: BoardEvaluator,
     n: number,
 ): ScoreModelDataPoint[] {
     const trainingData: ScoreModelDataPoint[] = [];
 
     while (trainingData.length < n) {
-        const maxLines = Math.floor(stdMaxLines);
-        let { positions } = generateGameBoards(new Board(maxLines), boardEvaluator);
+        let { positions } = generateGameBoards(new Board(stdMaxLines), scoreBoardEvaluator);
 
         if (positions.length === 0) {
             throw new Error('Should not be possible');
         }
 
         for (let i = 0; i < deepSamplesPerGame; i++) {
-            let position = positions[Math.floor(randMaxN(3) * positions.length)];
+            let position = positions[Math.floor(positions.length / 2)];
             const prevBoard = position;
 
             const choices = position.findChoices(getRandomPieceType());
@@ -42,31 +42,25 @@ export function generateScoreTrainingData(
             // kind of thing)
             position = choices[Math.floor(Math.random() * choices.length)];
 
+            // Now that we've seeded the position, give the prediction model an amount of lines
+            // cleared that is appropriate for training
+            position.lines_cleared_max = (
+                position.lines_cleared +
+
+                // Remaining lines is in the range [0,stdMaxLines) but heavily weighted towards 0
+                Math.floor((1 - randMaxN(3)) * stdMaxLines)
+            );
+
             // Add the pair to the training data
             trainingData.push(augment({
                 prevBoard,
                 board: position,
-                boardEvaluator,
+                boardEvaluator: predictionBoardEvaluator,
             }));
         }
 
-        for (let i = 0; i < lookaheadSamplesPerGame; i++) {
-            const position = positions[Math.floor(Math.random() * positions.length)];
-
-            const choices = position.findChoices(getRandomPieceType());
-
-            if (choices.length === 0) {
-                continue;
-            }
-
-            // pick a random next move, play that, and train it
-            // const randomChoice = choices[Math.floor(Math.random() * choices.length)];
-
-            // Add the pair to the training data
-            trainingData.push(augmentLookahead({
-                board: position,
-                boardEvaluator,
-            }));
+        if (lookaheadSamplesPerGame !== 0) {
+            throw new Error('Not implemented');
         }
     }
 
