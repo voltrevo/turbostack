@@ -14,10 +14,16 @@ async function evaluateModel() {
     let boardEvaluator = model.createBoardEvaluator();
 
     while (true) {
-        for (let i = 0; i < 10; i++) {
-            const { finalScore } = await generateGameBoards(new Board(stdMaxLines), boardEvaluator);
-            calc.update(finalScore);
-        }
+        await Promise.all(
+            Array.from({ length: 10 }, async () => {
+                const { finalScore } = await generateGameBoards(
+                    new Board(stdMaxLines),
+                    boardEvaluator,
+                );
+
+                calc.update(finalScore);
+            })
+        );
 
         console.log(calc.fmt());
     }
