@@ -8,27 +8,21 @@ import { ScoreModel } from '../src/ScoreModel';
 async function generateAndSaveTrainingData() {
     console.log('loading models');
     const scoreModel = await ScoreModel.load();
-    const predictionModel = await PredictionModel.load();
 
     const yyyymmddhh = () => new Date().toISOString().slice(0, 13).replace(/[-:T]/g, '');
 
     const scoreBoardEvaluator = scoreModel.createBoardEvaluator();
-    const predictionBoardEvaluator = predictionModel.createBoardEvaluator();
 
     console.log('generating training data');
     // Generate training data using the board evaluator
 
-    const limit = 1000;
+    const limit = 50;
     let t = Date.now();
 
     let size = 0;
 
     while (size < limit) {
-        const newData = await generateScoreTrainingData(
-            scoreBoardEvaluator,
-            predictionBoardEvaluator,
-            1,
-        );
+        const newData = await generateScoreTrainingData(scoreBoardEvaluator);
 
         size += newData.length;
 
@@ -47,10 +41,11 @@ async function generateAndSaveTrainingData() {
             console.log(calc.fmt());
         }
 
-        const lineJson = newData.map(({ board, finalScore, finalScoreSamples }) => JSON.stringify({
+        const lineJson = newData.map(({ board, finalScore, finalScoreSamples, scoreStdev }) => JSON.stringify({
             board: board.toJson(),
             finalScore,
             finalScoreSamples,
+            scoreStdev,
         })).join('\n');
 
         await fs.appendFile(`./data/dataset/scoreTrainingData-${yyyymmddhh()}.jsonl`, lineJson + '\n');

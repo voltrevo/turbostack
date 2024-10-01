@@ -1,10 +1,12 @@
 // Assuming Board, PieceType, and other necessary classes and functions are imported
-import { deepSamplesPerGame, lookaheadSamplesPerGame, nPlayoutsToAvg, stdMaxLines } from './hyperParams';
+import { nPlayoutsToAvg, sampleDepth, samplesPerGame, stdMaxLines } from './hyperParams';
 import { Board } from './Board';
 import { generateGameBoards } from './generateGameBoards';
-import { ALL_PIECE_TYPES, getRandomPieceType } from './PieceType';
+import { getRandomPieceType } from './PieceType';
 import { ScoreModelDataPoint } from './ScoreModel';
 import { BoardEvaluator } from './BoardEvaluator';
+import { applyNMoves } from './applyMove';
+import Stats from './Stats';
 
 /**
  * Generates training data for machine learning.
@@ -13,79 +15,54 @@ import { BoardEvaluator } from './BoardEvaluator';
  * @returns Array of training data pairs (mlData, finalScore).
  */
 export async function generateScoreTrainingData(
-    scoreBoardEvaluator: BoardEvaluator,
-    predictionBoardEvaluator: BoardEvaluator,
-    n: number,
+    boardEvaluator: BoardEvaluator,
 ): Promise<ScoreModelDataPoint[]> {
     const trainingData: ScoreModelDataPoint[] = [];
 
-    while (trainingData.length < n) {
-        let { positions } = await generateGameBoards(new Board(stdMaxLines), scoreBoardEvaluator);
+    let { positions } = await generateGameBoards(new Board(stdMaxLines), boardEvaluator);
 
-        if (positions.length === 0) {
-            throw new Error('Should not be possible');
-        }
+    if (positions.length === 0) {
+        throw new Error('Should not be possible');
+    }
 
-        for (let i = 0; i < deepSamplesPerGame; i++) {
-            const posI = Math.floor(Math.random() * positions.length);
-            let position: Board;
-            let prevBoard: Board;
+    for (let i = 0; i < samplesPerGame; i++) {
+        const posI = Math.floor(Math.random() * positions.length);
+        let position: Board;
+        let prevBoard: Board;
 
-            if (Math.random() < 0.5) {
-                prevBoard = positions[posI];
+        if (Math.random() < 0.5) {
+            prevBoard = positions[posI];
 
-                // model is constantly asked to evaluate all the next choices, so we should train on
-                // that kind of thing
-                const randChoice = applyRandomChoice(prevBoard);
+            // model is constantly asked to evaluate all the next choices, so we should train on
+            // that kind of thing
+            const randChoice = applyRandomChoice(prevBoard);
 
-                if (randChoice === undefined) {
-                    i--;
-                    continue;
-                }
-
-                position = randChoice;
-            } else {
-                position = positions[posI];
-                prevBoard = positions[posI - 1] ?? new Board(stdMaxLines);
+            if (randChoice === undefined) {
+                i--;
+                continue;
             }
 
-            // Now that we've seeded the position, give the prediction model an amount of lines
-            // cleared that is appropriate for training
-
-            // in the range [0,stdMaxLines) but heavily weighted towards 0
-            const desiredRemainingLines = Math.floor(randMinN(3) * stdMaxLines);
-
-            position.lines_cleared_max = position.lines_cleared + desiredRemainingLines;
-            prevBoard.lines_cleared_max = position.lines_cleared_max;
-
-            // Add the pair to the training data
-            trainingData.push(await augment({
-                prevBoard,
-                board: position,
-                boardEvaluator: scoreBoardEvaluator,
-            }));
+            position = randChoice;
+        } else {
+            position = positions[posI];
+            prevBoard = positions[posI - 1] ?? new Board(stdMaxLines);
         }
 
-        for (let i = 0; i < lookaheadSamplesPerGame; i++) {
-            let position = positions[Math.floor(Math.random() * (positions.length - 4))];
+        // Now that we've seeded the position, give the prediction model an amount of lines
+        // cleared that is appropriate for training
 
-            if (Math.random() < 0.5) {
-                const randChoice = applyRandomChoice(position);
+        // in the range [0,stdMaxLines) but heavily weighted towards 0
+        const desiredRemainingLines = Math.floor(randMinN(3) * stdMaxLines);
 
-                if (randChoice === undefined) {
-                    i--;
-                    continue;
-                }
+        position.lines_cleared_max = position.lines_cleared + desiredRemainingLines;
+        prevBoard.lines_cleared_max = position.lines_cleared_max;
 
-                position = randChoice;
-            }
-
-            // Add the pair to the training data
-            trainingData.push(await augmentLookahead({
-                board: position,
-                boardEvaluator: scoreBoardEvaluator,
-            }));
-        }
+        // Add the pair to the training data
+        trainingData.push(await augment({
+            prevBoard,
+            board: position,
+            boardEvaluator: boardEvaluator,
+        }));
     }
 
     return trainingData;
@@ -128,47 +105,24 @@ async function augment({ prevBoard, board, boardEvaluator }: {
 }): Promise<ScoreModelDataPoint> {
     const scores = await Promise.all(
         Array.from({ length: nPlayoutsToAvg }).map(async () => {
-            const { finalScore } = await generateGameBoards(board, boardEvaluator);
-            return finalScore;
+            let altBoard = await applyNMoves(board, boardEvaluator, sampleDepth);;
+
+            if (altBoard.finished) {
+                return altBoard.score;
+            }
+
+            return (await boardEvaluator([altBoard]))[0];
         }),
     );
 
-    const avgScore = scores.reduce((a, b) => a + b) / scores.length;
+    const mean = Stats.mean(scores);
+    const stdev = Stats.stdevSample(scores);
 
     return {
         prevBoard,
         board,
-        finalScore: avgScore,
-        finalScoreSamples: scores,
-    };
-}
-
-async function augmentLookahead({ board, boardEvaluator }: {
-    board: Board;
-    boardEvaluator: BoardEvaluator;
-}): Promise<ScoreModelDataPoint> {
-    let scores = await Promise.all(ALL_PIECE_TYPES.map(async p => {
-        const choices = board.findChoices(p);
-
-        if (choices.length === 0) {
-            return undefined;
-        }
-
-        // Use evalBoard to evaluate each possible board
-        const choiceEvals = await boardEvaluator(choices);
-
-        // Find the board with the highest evalScore
-        choiceEvals.sort((a, b) => b - a);
-
-        return choiceEvals[0];
-    }));
-
-    const filteredScores = scores.filter(s => s !== undefined) as number[];
-
-    const avgScore = filteredScores.reduce((a, b) => a + b) / filteredScores.length;
-
-    return {
-        board,
-        finalScore: avgScore,
+        finalScore: mean,
+        finalScoreSamples: scores.map(s => Math.round(s)),
+        scoreStdev: stdev,
     };
 }

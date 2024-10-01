@@ -12,8 +12,9 @@ import BatchProcessor from './BatchProcessor';
 export type ScoreModelDataPoint = {
     prevBoard?: Board;
     board: Board;
-    finalScore: number;
+    finalScore: number; // TODO: rename (can be approx final score)
     finalScoreSamples?: number[];
+    scoreStdev?: number;
 };
 
 const learningRate = 0.01;
@@ -247,15 +248,17 @@ export class ScoreModel {
         return new SplitDataSet2<ScoreModelDataPoint>(
             'scoreModelData',
             Infinity,
-            ({ board, finalScore, finalScoreSamples }) => ({
+            ({ board, finalScore, finalScoreSamples, scoreStdev }) => ({
                 board: board.toJson(),
                 finalScore,
                 finalScoreSamples,
+                scoreStdev,
             }),
-            ({ board, finalScore, finalScoreSamples }: any) => ({
+            ({ board, finalScore, finalScoreSamples, scoreStdev }: any) => ({
                 board: Board.fromJson(board),
                 finalScore: finalScore,
                 finalScoreSamples,
+                scoreStdev,
             }),
         );
     }
