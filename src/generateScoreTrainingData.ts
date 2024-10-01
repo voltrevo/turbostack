@@ -66,8 +66,25 @@ export async function generateScoreTrainingData(
             }));
         }
 
-        if (lookaheadSamplesPerGame !== 0) {
-            throw new Error('Not implemented');
+        for (let i = 0; i < lookaheadSamplesPerGame; i++) {
+            let position = positions[Math.floor(Math.random() * (positions.length - 4))];
+
+            if (Math.random() < 0.5) {
+                const randChoice = applyRandomChoice(position);
+
+                if (randChoice === undefined) {
+                    i--;
+                    continue;
+                }
+
+                position = randChoice;
+            }
+
+            // Add the pair to the training data
+            trainingData.push(await augmentLookahead({
+                board: position,
+                boardEvaluator: scoreBoardEvaluator,
+            }));
         }
     }
 
@@ -130,14 +147,11 @@ async function augmentLookahead({ board, boardEvaluator }: {
     board: Board;
     boardEvaluator: BoardEvaluator;
 }): Promise<ScoreModelDataPoint> {
-    const scores = [];
-
-    for (const p of ALL_PIECE_TYPES) {
+    let scores = await Promise.all(ALL_PIECE_TYPES.map(async p => {
         const choices = board.findChoices(p);
 
         if (choices.length === 0) {
-            scores.push(board.score);
-            continue;
+            return undefined;
         }
 
         // Use evalBoard to evaluate each possible board
@@ -146,10 +160,12 @@ async function augmentLookahead({ board, boardEvaluator }: {
         // Find the board with the highest evalScore
         choiceEvals.sort((a, b) => b - a);
 
-        scores.push(choiceEvals[0]);
-    }
+        return choiceEvals[0];
+    }));
 
-    const avgScore = scores.reduce((a, b) => a + b) / scores.length;
+    const filteredScores = scores.filter(s => s !== undefined) as number[];
+
+    const avgScore = filteredScores.reduce((a, b) => a + b) / filteredScores.length;
 
     return {
         board,

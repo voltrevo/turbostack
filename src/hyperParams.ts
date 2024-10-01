@@ -11,9 +11,8 @@ export const artificialHeightLimit = 15;
 // When generating training data, how many deep samples and how many lookahead samples to generate
 // for each base game
 // (lookahead data is training the current board on the average eval of the next move)
-// TODO: These make less sense currently due to random play to seed the board
-export const deepSamplesPerGame = 1;
-export const lookaheadSamplesPerGame = 0;
+export const deepSamplesPerGame = 0;
+export const lookaheadSamplesPerGame = 10;
 
 // Other than the board itself, how many features?
 // Standard is just linesRemaining (and score?)

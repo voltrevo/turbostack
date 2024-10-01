@@ -18,7 +18,7 @@ async function generateAndSaveTrainingData() {
     console.log('generating training data');
     // Generate training data using the board evaluator
 
-    const limit = 10;
+    const limit = 1000;
     let t = Date.now();
 
     let size = 0;
