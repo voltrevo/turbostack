@@ -1,7 +1,6 @@
 import fs from 'fs/promises';
 
 import { generateScoreTrainingData } from "../src/generateScoreTrainingData";
-import { PredictionModel } from "../src/PredictionModel";
 import { WelfordCalculator } from "../src/WelfordCalculator";
 import { ScoreModel } from '../src/ScoreModel';
 
@@ -16,7 +15,7 @@ async function generateAndSaveTrainingData() {
     console.log('generating training data');
     // Generate training data using the board evaluator
 
-    const limit = 50;
+    const limit = 20;
     let t = Date.now();
 
     let size = 0;
