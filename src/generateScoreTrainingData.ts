@@ -62,7 +62,7 @@ export async function generateScoreTrainingData(
             trainingData.push(await augment({
                 prevBoard,
                 board: position,
-                boardEvaluator: predictionBoardEvaluator,
+                boardEvaluator: scoreBoardEvaluator,
             }));
         }
 
