@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 
-import * as tf from '@tensorflow/tfjs-node';
+import * as tf from '@tensorflow/tfjs-node-gpu';
 import { evalNodeCount, extraFeatureLen } from './hyperParams';
 import { exists } from './exists';
 import { SplitDataSet } from './SplitDataSet';
