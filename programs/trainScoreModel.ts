@@ -1,3 +1,4 @@
+import { validationSplit } from "../src/hyperParams";
 import { ScoreModel } from "../src/ScoreModel";
 import { showPerformanceSummary } from "../src/showPerformanceSummary";
 
@@ -14,29 +15,25 @@ async function trainScoreModel() {
         throw new Error('Training data not found');
     }
 
+    const splitData = trainingData.all(validationSplit);
+    const { data, valData } = {
+        data: ScoreModel.prepareTrainingData(splitData.data),
+        valData: ScoreModel.prepareTrainingData(splitData.valData),
+    };
+
     console.log(`Loaded ${trainingData.size()} training data points`);
 
-    // Create a board evaluator using the blank model
-    let boardEvaluator = model.createBoardEvaluator();
+    await showPerformanceSummary(
+        Date.now() - startTime,
+        model.calculateValLossImpl(valData),
+        // boardEvaluator,
+        // boards => model.predictMean(boards),
+    );
 
-    while (true) {
-        await showPerformanceSummary(
-            Date.now() - startTime,
-            model.calculateValLoss(trainingData),
-            boardEvaluator,
-            boards => model.predictMean(boards),
-        );
+    // Train the model on the training data
+    await model.trainImpl(data, valData, 50);
 
-        const sampleTrainingData = trainingData; //.sample(300_000);
-
-        // Train the model on the training data
-        await model.train(sampleTrainingData, 20);
-
-        // Use the updated model to replace the training data
-        boardEvaluator = model.createBoardEvaluator();
-
-        await model.save();
-    }
+    await model.save();
 }
 
 trainScoreModel().catch(console.error);

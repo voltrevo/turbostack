@@ -8,8 +8,8 @@ import { ScoreModel } from "../src/ScoreModel";
 async function evaluateModel() {
     console.log('loading model');
     let model = await ScoreModel.load();
-    const yyyymmddhhmmss = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
-    await model.save(`scoreModel-${yyyymmddhhmmss}`);
+    const yyyymmddhhmmss = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+    await model.save(`snaps/scoreModel-${yyyymmddhhmmss}`);
     console.log('snapshot saved at scoreModel-' + yyyymmddhhmmss);
 
     const calc = new WelfordCalculator();

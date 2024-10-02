@@ -8,30 +8,31 @@ import { BoardEvaluator } from "./BoardEvaluator";
 export async function showPerformanceSummary(
     duration: number,
     valLoss: number,
-    boardEvaluator: BoardEvaluator,
-    boardStats: (boards: Board[]) => unknown = boardEvaluator,
+    // boardEvaluator: BoardEvaluator,
+    // boardStats: (boards: Board[]) => unknown = boardEvaluator,
 ) {
-    const sample = await getSampleBoard(boardEvaluator);
-    console.log(sample.toString());
-    console.log('Prediction for sample above:', boardStats([sample]));
+    // const sample = await getSampleBoard(boardEvaluator);
+    // console.log(sample.toString());
+    // console.log('Prediction for sample above:', boardStats([sample]));
 
-    console.log('Game start prediction:', boardStats([new Board(stdMaxLines)]));
+    // console.log('Game start prediction:', boardStats([new Board(stdMaxLines)]));
 
     console.log('Validation loss:', valLoss);
 
-    const calc = new WelfordCalculator();
+    // const calc = new WelfordCalculator();
 
-    for (let i = 0; i < 30; i++) {
-        const { finalScore } = await generateGameBoards(new Board(stdMaxLines), boardEvaluator);
-        calc.update(finalScore);
-    }
+    // for (let i = 0; i < 10; i++) {
+    //     const { finalScore } = await generateGameBoards(new Board(stdMaxLines), boardEvaluator);
+    //     calc.update(finalScore);
+    // }
 
-    console.log(calc.fmt());
+    // console.log(calc.fmt());
 
     const durationMinutes = (duration / 60_000).toFixed(1);
     console.log(`Training for ${durationMinutes} minutes`);
 
-    await addPerfLog(durationMinutes, valLoss, calc.fmt());
+    // await addPerfLog(durationMinutes, valLoss, calc.fmt());
+    await addPerfLog(durationMinutes, valLoss, '');
 }
 
 async function getSampleBoard(boardEvaluator: BoardEvaluator) {

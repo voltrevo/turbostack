@@ -17,7 +17,7 @@ export type ScoreModelDataPoint = {
     scoreStdev?: number;
 };
 
-const learningRate = 0.01;
+const learningRate = 0.001;
 
 const spatialShape = [21, 12, 1];
 
@@ -94,9 +94,9 @@ export class ScoreModel {
         return new ScoreModel(model);
     }
 
-    async save() {
-        await fs.mkdir('data/scoreModel', { recursive: true });
-        await this.tfModel.save('file://data/scoreModel');
+    async save(name = 'scoreModel') {
+        await fs.mkdir(`data/${name}`, { recursive: true });
+        await this.tfModel.save(`file://data/${name}`);
     }
 
     static async load() {
@@ -147,6 +147,32 @@ export class ScoreModel {
         console.log("Training complete.");
     }
 
+    async trainImpl(
+        data: {
+            xs: tf.Tensor<tf.Rank>[];
+            ys: tf.Tensor<tf.Rank>;
+        },
+        valData: {
+            xs: tf.Tensor<tf.Rank>[];
+            ys: tf.Tensor<tf.Rank>;
+        },
+        epochs: number,
+    ) {
+        await this.tfModel.fit(data.xs, data.ys, {
+            epochs,
+            batchSize: 1024,
+            validationData: [valData.xs, valData.ys],
+            verbose: 1,
+            callbacks: [
+                // tf.callbacks.earlyStopping({
+                //     monitor: 'val_loss',
+                //     patience: 20,
+                // }),
+                new CustomLogger(),
+            ],
+        });
+    }
+
     calculateValLoss(trainingData: SplitDataSet2<ScoreModelDataPoint>) {
         // Prepare validation data
         const valData = ScoreModel.prepareTrainingData(trainingData.all(validationSplit).valData);
@@ -164,6 +190,28 @@ export class ScoreModel {
 
         // Clean up tensors to avoid memory leaks
         valLossTensor.dispose();
+        predictions.dispose();
+
+        // Return average validation loss
+        return Math.sqrt(valLossSum / valData.xs[0].shape[0]);
+    }
+
+    calculateValLossImpl(valData: {
+        xs: tf.Tensor<tf.Rank>[];
+        ys: tf.Tensor<tf.Rank>;
+    }) {
+        // Get predictions from the model
+        const predictions = this.tfModel.predict(valData.xs) as tf.Tensor2D;
+
+        // Extract the actual validation labels (ys)
+        const yTrue = valData.ys;
+
+        const valLossTensor = tf.metrics.meanSquaredError(yTrue, predictions);
+
+        // Sum up the loss values
+        const valLossSum = valLossTensor.sum().dataSync()[0];
+
+        // Clean up tensors to avoid memory leaks
         predictions.dispose();
 
         // Return average validation loss

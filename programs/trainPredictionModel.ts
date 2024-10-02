@@ -34,7 +34,6 @@ async function trainPredictionModel() {
         await showPerformanceSummary(
             Date.now() - startTime,
             newValLoss,
-            model.createBoardEvaluator(),
         );
 
         const newLoss = model.calculateLoss(trainingData);
