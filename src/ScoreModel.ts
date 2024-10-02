@@ -13,8 +13,9 @@ export type ScoreModelDataPoint = {
     prevBoard?: Board;
     board: Board;
     finalScore: number; // TODO: rename (can be approx final score)
-    finalScoreSamples?: number[];
+    playouts?: number;
     scoreStdev?: number;
+    meanStdev?: number;
 };
 
 const learningRate = 0.001;
@@ -296,17 +297,19 @@ export class ScoreModel {
         return new SplitDataSet2<ScoreModelDataPoint>(
             'scoreModelData',
             Infinity,
-            ({ board, finalScore, finalScoreSamples, scoreStdev }) => ({
+            ({ board, finalScore, playouts, scoreStdev, meanStdev }) => ({
                 board: board.toJson(),
                 finalScore,
-                finalScoreSamples,
+                playouts,
                 scoreStdev,
+                meanStdev,
             }),
-            ({ board, finalScore, finalScoreSamples, scoreStdev }: any) => ({
+            ({ board, finalScore, playouts, scoreStdev, meanStdev }: any) => ({
                 board: Board.fromJson(board),
                 finalScore: finalScore,
-                finalScoreSamples,
+                playouts,
                 scoreStdev,
+                meanStdev,
             }),
         );
     }

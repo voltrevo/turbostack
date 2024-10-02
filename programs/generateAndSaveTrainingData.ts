@@ -26,25 +26,25 @@ async function generateAndSaveTrainingData() {
         size += newData.length;
 
         for (const x of newData) {
-            const calc = new WelfordCalculator();
-            for (const score of x.finalScoreSamples ?? []) {
-                calc.update(score);
-            }
-
             if (x.prevBoard) {
                 console.log(x.board.toStringDiff(x.prevBoard));
             } else {
                 console.log(x.board.toString());
             }
 
-            console.log(calc.fmt());
+            const summary = Object.fromEntries(Object.entries(x)
+                .filter(([_k, v]) => typeof v === 'number')
+            );
+
+            console.log(summary);
         }
 
-        const lineJson = newData.map(({ board, finalScore, finalScoreSamples, scoreStdev }) => JSON.stringify({
+        const lineJson = newData.map(({ board, finalScore, playouts, scoreStdev, meanStdev }) => JSON.stringify({
             board: board.toJson(),
             finalScore,
-            finalScoreSamples,
+            playouts,
             scoreStdev,
+            meanStdev,
         })).join('\n');
 
         await fs.appendFile(`./data/dataset/scoreTrainingData-${yyyymmddhh()}.jsonl`, lineJson + '\n');

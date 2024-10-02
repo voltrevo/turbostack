@@ -11,6 +11,11 @@ export const samplesPerGame = 1;
 export const sampleDepth = 20;
 export const nPlayoutsToAvg = 100;
 
+// We use nPlayoutsToAvg as a minimum playouts, but we also want our confidence in the true average
+// to be below this number, so we continue doing playouts until our stdev *of the mean* is below
+// this number. (ie, the stdev of the mean should reduce as 1/sqrt(playouts))
+export const maxScoreMeanStdev = 100;
+
 // Other than the board itself, how many features?
 // Standard is just linesRemaining (and score?)
 // Sometimes experiment with extra handcrafted stuff

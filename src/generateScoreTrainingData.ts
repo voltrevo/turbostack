@@ -1,5 +1,5 @@
 // Assuming Board, PieceType, and other necessary classes and functions are imported
-import { nPlayoutsToAvg, sampleDepth, samplesPerGame, stdMaxLines } from './hyperParams';
+import { maxScoreMeanStdev, nPlayoutsToAvg, sampleDepth, samplesPerGame, stdMaxLines } from './hyperParams';
 import { Board } from './Board';
 import { generateGameBoards } from './generateGameBoards';
 import { getRandomPieceType } from './PieceType';
@@ -103,26 +103,35 @@ async function augment({ prevBoard, board, boardEvaluator }: {
     board: Board;
     boardEvaluator: BoardEvaluator;
 }): Promise<ScoreModelDataPoint> {
-    const scores = await Promise.all(
-        Array.from({ length: nPlayoutsToAvg }).map(async () => {
-            let altBoard = await applyNMoves(board, boardEvaluator, sampleDepth);;
+    let meanStdev = Infinity;
+    let mean = NaN;
+    let stdev = NaN;
+    const scores = [];
 
-            if (altBoard.finished) {
-                return altBoard.score;
-            }
+    while (meanStdev > maxScoreMeanStdev) {
+        scores.push(...await Promise.all(
+            Array.from({ length: nPlayoutsToAvg }).map(async () => {
+                let altBoard = await applyNMoves(board, boardEvaluator, sampleDepth);;
+    
+                if (altBoard.finished) {
+                    return altBoard.score;
+                }
+    
+                return (await boardEvaluator([altBoard]))[0];
+            }),
+        ));
 
-            return (await boardEvaluator([altBoard]))[0];
-        }),
-    );
-
-    const mean = Stats.mean(scores);
-    const stdev = Stats.stdevSample(scores);
+        mean = Stats.mean(scores);
+        stdev = Stats.stdevSample(scores);
+        meanStdev = stdev / Math.sqrt(scores.length);
+    }
 
     return {
         prevBoard,
         board,
         finalScore: mean,
-        finalScoreSamples: scores.map(s => Math.round(s)),
+        playouts: scores.length,
         scoreStdev: stdev,
+        meanStdev,
     };
 }
