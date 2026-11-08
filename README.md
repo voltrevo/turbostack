@@ -24,7 +24,9 @@ does to within one float rounding, and plays the same games, game for game.
 alone; `src/selfplay.wac` and `tools/train.sh` train it by self-play — no human games, no hand-made features. What it took
 is in the commit history: λ-returns, starting boards with rubble and wells (where a clear or a tetris is a move away), a
 survival reward that fades to nothing, and TD(λ) targets cheap enough to see five times the boards. It learned to clear
-lines, then to survive, then — once only points counted — to build for tetrises.
+lines, then to survive, then — once only points counted — to build for tetrises. Fine-tuned on exact one-piece
+expectations, it now beats the number above: **23,667 ± 168** on the same 1,000 games, 1,612 ± 233 ahead game by game
+(`docs/results.md`).
 
 ## Running things
 
