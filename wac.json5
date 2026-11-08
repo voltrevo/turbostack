@@ -4,5 +4,8 @@
   imports: {
     // Tensors, layers, gradients and checkpoints.
     tensor: { git: 'https://git.voltrevo.com/wac-tensor.git', ref: '0ad2a464205f9e6398a8199956259efdcff9d899' },
+    // Only the pages site (`web/play.wac`) and its builder use these.
+    web: { git: 'https://github.com/voltrevo/wac-web.git', ref: 'a14793f5e55af55b1ef9973715d31087e6d0c1f8' },
+    webbuild: { git: 'https://github.com/voltrevo/wac-web.git', ref: 'a14793f5e55af55b1ef9973715d31087e6d0c1f8', subdir: './tools' },
   },
 }

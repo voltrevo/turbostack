@@ -147,17 +147,30 @@ export Board[] boardsFromPlay(Device d, ValueNet net, Pieces rng, i32 want, Expl
 }
 
 /**
- * Where a training game starts: an empty board half the time, and otherwise up to ten rows of random rubble at the
- * bottom, each row short of full by one to three cells chosen at random.
+ * Where a training game starts: an empty board half the time; a fifth of the time a well, rows full but for one
+ * shared column; and otherwise up to ten rows of random rubble at the bottom, each row short of full by one to three
+ * cells chosen at random.
  *
  * **Not a lesson in how to play**, only a wider choice of where to start. From an empty board a player that knows
  * nothing takes many pieces to make a full row and usually tops out first, so line clears — the only thing that scores
  * — are almost never seen and nothing is learned. From rubble, a clear is often a piece or two away: the value of
- * filling a row is found at once, and carries over to games from an empty board, which is where play is measured.
+ * filling a row is found at once, and carries over to games from an empty board, which is where play is measured. A
+ * well does the same for the tetris: it shows what four lines at once pay, not how to build towards one.
  */
 export Board startingBoard(Pieces rng, i32 lines) {
   Board b = Board.empty(lines);
-  if (rng.uniform() < 0.5) { return b; }
+  f64 kind = rng.uniform();
+  if (kind < 0.5) { return b; }
+  if (kind < 0.7) {
+    // A well: up to twelve rows, each missing the same one column — an I dropped in clears four at once. A player
+    // that clears lines one at a time never builds one, so it would never find out what a tetris pays.
+    i32 rows = 1 + ((rng.uniform() * 12.0).floor() as~ i32);
+    i32 well = (rng.uniform() * 10.0).floor() as~ i32;
+    for (i32 r = 0; r < rows; r++) {
+      for (i32 j = 0; j < 10; j++) { if (j != well) { b.flip(19 - r, j); } }
+    }
+    return b;
+  }
   i32 rows = (rng.uniform() * 11.0).floor() as~ i32;
   for (i32 r = 0; r < rows; r++) {
     i32 i = 19 - r;

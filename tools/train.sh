@@ -32,7 +32,7 @@ while [ "$i" -lt "$iters" ]; do
   fitted=$(wac run --allow-read --allow-write tools/fit.wac "$config" "$model" "$dir/model-$((i + 1)).weights" ${EPOCHS:-4} $files)
   t1=$(date +%s)
   line="iteration $((i + 1)), bonus $bonus: $fitted ($((t1 - t0)) s)"
-  if [ $(((i + 1) % 2)) -eq 0 ]; then
+  if [ $(((i + 1) % ${EVAL_EVERY:-2})) -eq 0 ]; then
     score=$(wac run --allow-read tools/evaluate.wac "$config" "$dir/model-$((i + 1)).weights" 1001 1020 | tail -1)
     line="$line; games 1001-1020: $score"
   fi
