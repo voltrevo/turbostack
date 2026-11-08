@@ -1,0 +1,35 @@
+// Watch a model play one game: the board every `every` pieces, and at the end.
+//
+//     wac run --allow-read tools/show.wac small|standard <value.weights> <seed> [every]
+
+import { Sys } from "std";
+import { Device, loadWeights } from "tensor";
+import { Board } from "../src/board.wac";
+import { Pieces, argmax } from "../src/game.wac";
+import { playerValues } from "../src/selfplay.wac";
+import { parseInt } from "../src/text.wac";
+import { ValueConfig, ValueNet } from "../src/value.wac";
+
+export async i32 main(Sys sys) {
+  string[] a = sys.args();
+  Device d = Device.cpu();
+  ValueNet net = ValueNet.create(d, ValueConfig.named(a[0]));
+  auto r = loadWeights(net.params, (await sys.readFile(a[1])).orElse(u8[]()));
+  if (r.isErr()) { sys.log(r.err()!); return 1; }
+  Pieces p = Pieces.seeded(parseInt(a[2]));
+  i32 every = a.len() > 3 ? parseInt(a[3]) : 25;
+  Board b = Board.empty(130);
+  i32 n = 0;
+  while (!b.finished && b.maxHeight() <= 15) {
+    Board[] cs = b.choices(p.next());
+    if (cs.len() == 0) { break; }
+    b = cs[argmax(playerValues(d, net, b, cs))];
+    n++;
+    if (n % every == 0) {
+      f32[] v = net.values(d, [b]);
+      sys.log("after \{n} pieces, valued at \{v[0]} more:\n" + b.show());
+    }
+  }
+  sys.log("final, after \{n} pieces:\n" + b.show());
+  return 0;
+}

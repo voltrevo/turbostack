@@ -76,9 +76,10 @@ export struct Examples {
 
 /**
  * The target of each of `boards`: the mean over the seven pieces of the best `points + value` they allow, nothing for a
- * piece with nowhere to go. Every child of every board is valued in one batch.
+ * piece with nowhere to go — `points` including `bonus` for a placement that does not top out. Every child of every
+ * board is valued in one batch.
  */
-export f32[] targets(Device d, ValueNet net, Board[] boards) {
+export f32[] targets(Device d, ValueNet net, Board[] boards, f64 bonus) {
   Vec<Board> children = Vec.create();
   i32[] counts = i32[].filled(boards.len() * PIECE_COUNT, 0);
   for (i32 k = 0; k < boards.len(); k++) {
@@ -99,7 +100,7 @@ export f32[] targets(Device d, ValueNet net, Board[] boards) {
       f64 best = 0.0;
       for (i32 c = 0; c < n; c++) {
         Board ch = all[at + c];
-        f64 q = ((ch.score - boards[k].score) as f64) + (v[at + c] as f64);
+        f64 q = ((ch.score - boards[k].score) as f64) + (ch.finished && ch.linesCleared < ch.linesMax ? 0.0 : bonus) + (v[at + c] as f64);
         if (c == 0 || q > best) { best = q; }
       }
       total += best;
@@ -143,6 +144,168 @@ export Board[] boardsFromPlay(Device d, ValueNet net, Pieces rng, i32 want, Expl
     }
   }
   return out.toArray();
+}
+
+/**
+ * Where a training game starts: an empty board half the time, and otherwise up to ten rows of random rubble at the
+ * bottom, each row short of full by one to three cells chosen at random.
+ *
+ * **Not a lesson in how to play**, only a wider choice of where to start. From an empty board a player that knows
+ * nothing takes many pieces to make a full row and usually tops out first, so line clears — the only thing that scores
+ * — are almost never seen and nothing is learned. From rubble, a clear is often a piece or two away: the value of
+ * filling a row is found at once, and carries over to games from an empty board, which is where play is measured.
+ */
+export Board startingBoard(Pieces rng, i32 lines) {
+  Board b = Board.empty(lines);
+  if (rng.uniform() < 0.5) { return b; }
+  i32 rows = (rng.uniform() * 11.0).floor() as~ i32;
+  for (i32 r = 0; r < rows; r++) {
+    i32 i = 19 - r;
+    bool[] gap = bool[].filled(10, false);
+    i32 gaps = 1 + ((rng.uniform() * 3.0).floor() as~ i32);
+    for (i32 g = 0; g < gaps; g++) { gap[(rng.uniform() * 10.0).floor() as~ i32] = true; }
+    for (i32 j = 0; j < 10; j++) { if (!gap[j]) { b.flip(i, j); } }
+  }
+  return b;
+}
+
+/**
+ * Boards from the network's own games with **λ-return** targets: each board's exact one-step target blended with what
+ * the game actually went on to score from it —
+ *
+ *     G(t) = (1 − λ) · T(board t) + λ · (points of move t+1 + G(t+1))
+ *
+ * — so with λ near 1 a board learns from the whole rest of its game at once, where the one-step target alone carries
+ * value back one piece an iteration and a game is three hundred and more. The exact target is still in every blend,
+ * which keeps the piece sequence's luck from dominating. A random exploring move cuts the chain: what followed it is
+ * not what the network would have done, so the board before it takes its one-step target alone.
+ *
+ * **`bonus` is a reward for every piece placed without topping out**, used only while learning and faded to nothing
+ * (`tools/train.sh`). A player that knows nothing almost never clears a line, so a game's points alone give it no
+ * reason to survive — topping out costs nothing it expected. Paid for surviving, it learns first to keep a low, clean
+ * stack, which in a game of 130 lines means clearing them constantly; as the bonus fades, the points take over. What it
+ * is measured on is the points alone.
+ */
+export Examples examplesFromPlay(Device d, ValueNet net, Pieces rng, i32 want, Exploration x, f64 lambda, f64 bonus) {
+  Examples out = Examples.create();
+  while (out.len() < want) {
+    i32 lines = 1 + ((rng.uniform() * 130.0).floor() as~ i32);
+    if (rng.uniform() < 0.3) { lines = 130; }
+    Board b = startingBoard(rng, lines);
+    Vec<Board> seq = Vec.create();
+    Vec<f64> points = Vec.create();
+    Vec<bool> random = Vec.create();
+    while (!b.finished && out.len() + seq.len() < want) {
+      Board[] cs = b.choices(rng.next());
+      if (cs.len() == 0) { break; }
+      i32 pick = 0;
+      bool explored = rng.uniform() < x.epsilon;
+      if (explored) {
+        pick = (rng.uniform() * (cs.len() as f64)).floor() as~ i32;
+      } else {
+        f32[] pv = playerValues(d, net, b, cs);
+        for (i32 i = 0; i < cs.len(); i++) {
+          if (!(cs[i].finished && cs[i].linesCleared < cs[i].linesMax)) { pv[i] = ((pv[i] as f64) + bonus) as~ f32; }
+        }
+        pick = argmax(pv);
+      }
+      Board next = cs[pick];
+      points.push(((next.score - b.score) as f64) + (next.finished && next.linesCleared < next.linesMax ? 0.0 : bonus));
+      random.push(explored);
+      b = cs[pick];
+      seq.push(b);
+    }
+    // seq[k] is the board after move k; points[k] what move k scored; random[k] whether move k was a random one.
+    i32 n = seq.len();
+    Board[] boards = seq.toArray();
+    f32[] t = f32[].filled(n, 0.0);
+    for (i32 at = 0; at < n; at += 32) {
+      i32 to = at + 32 < n ? at + 32 : n;
+      Board[] slice = Board[].filled(to - at, boards[0]);
+      for (i32 k = at; k < to; k++) { slice[k - at] = boards[k]; }
+      f32[] st = targets(d, net, slice, bonus);
+      for (i32 k = at; k < to; k++) { t[k] = boards[k].finished ? 0.0 : st[k - at]; }
+    }
+    f64 g = 0.0;
+    for (i32 k = n - 1; k >= 0; k--) {
+      if (boards[k].finished) {
+        g = 0.0;
+      } else if (k == n - 1 || random.get(k + 1)) {
+        g = t[k] as f64;
+      } else {
+        g = (1.0 - lambda) * (t[k] as f64) + lambda * (points.get(k + 1) + g);
+      }
+      if (!boards[k].finished) { out.add(boards[k], g as~ f32); }
+    }
+  }
+  return out;
+}
+
+/**
+ * Boards from the network's own games with **TD(λ)** targets: like `examplesFromPlay`, but bootstrapping from the
+ * network's value of the board the game actually reached rather than from the exact seven-piece expectation —
+ *
+ *     G(t) = r(t+1) + (1 − λ) · V(board t+1) + λ · G(t+1)
+ *
+ * With λ near 1 the expectation is a small part of every target, and it is most of what computing one costs: valuing
+ * every placement of every piece for every board, about 175 boards each. Without it a board costs only what playing it
+ * did, so an iteration sees about seven times as many. Every move still values all of its placements — the player needs
+ * them — so a random exploring move cuts the chain with the best value the piece drawn allowed, not the random one's.
+ */
+export Examples examplesTD(Device d, ValueNet net, Pieces rng, i32 want, Exploration x, f64 lambda, f64 bonus) {
+  Examples out = Examples.create();
+  while (out.len() < want) {
+    i32 lines = 1 + ((rng.uniform() * 130.0).floor() as~ i32);
+    if (rng.uniform() < 0.3) { lines = 130; }
+    Board b = startingBoard(rng, lines);
+    Vec<Board> seq = Vec.create();
+    // For move k (which made seq[k]): what it scored with the bonus, the network's value of the board it made, the
+    // best `score + value` its piece allowed, and whether it was a random move.
+    Vec<f64> reward = Vec.create();
+    Vec<f64> value = Vec.create();
+    Vec<f64> best = Vec.create();
+    Vec<bool> random = Vec.create();
+    while (!b.finished && out.len() + seq.len() < want) {
+      Board[] cs = b.choices(rng.next());
+      if (cs.len() == 0) { break; }
+      f32[] v = net.values(d, cs);
+      f64[] q = f64[].filled(cs.len(), 0.0);
+      for (i32 i = 0; i < cs.len(); i++) {
+        bool toppedOut = cs[i].finished && cs[i].linesCleared < cs[i].linesMax;
+        q[i] = ((cs[i].score - b.score) as f64) + (toppedOut ? 0.0 : bonus) + (v[i] as f64);
+      }
+      i32 g = 0;
+      for (i32 i = 1; i < cs.len(); i++) { if (q[i] > q[g]) { g = i; } }
+      bool explored = rng.uniform() < x.epsilon;
+      i32 pick = explored ? ((rng.uniform() * (cs.len() as f64)).floor() as~ i32) : g;
+      Board next = cs[pick];
+      bool toppedOut = next.finished && next.linesCleared < next.linesMax;
+      reward.push(((next.score - b.score) as f64) + (toppedOut ? 0.0 : bonus));
+      value.push(v[pick] as f64);
+      best.push(q[g]);
+      random.push(explored);
+      b = next;
+      seq.push(b);
+    }
+    i32 n = seq.len();
+    f64 gk = 0.0;
+    for (i32 k = n - 1; k >= 0; k--) {
+      Board bk = seq.get(k);
+      if (bk.finished) {
+        gk = 0.0;
+        continue;
+      }
+      if (k == n - 1) {
+        gk = value.get(k);
+      } else if (random.get(k + 1)) {
+        gk = best.get(k + 1);
+      } else {
+        gk = reward.get(k + 1) + (1.0 - lambda) * value.get(k + 1) + lambda * gk;
+      }
+      out.add(bk, gk as~ f32);
+    }
+  }
+  return out;
 }
 
 /** The network's own player: each piece where `points now + value of the board left` is largest. */
