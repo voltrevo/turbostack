@@ -1,8 +1,9 @@
 // Fit the network to the targets workers made: the next iteration's network.
 //
-//     wac run --allow-read --allow-write tools/fit.wac <config> <in.weights|none> <out.weights> <epochs[:rate‱]> <data.bin>...
+//     wac run --allow-read --allow-write tools/fit.wac <config> <in.weights|none> <out.weights> <epochs[:rate‱[:divisor]]> <data.bin>...
 //
-// The learning rate is Adam's 0.001 unless given, in ten-thousandths, after the epochs: `1:3` is one epoch at 0.0003.
+// The learning rate is Adam's 0.001 unless given, in ten-thousandths, after the epochs: `1:3` is one epoch at 0.0003,
+// and `2:1:4` two epochs at 0.000025.
 //
 // A twentieth of the boards is held out and only measured, so the printed error says whether the network is learning
 // the targets or memorising them. Errors are root mean square, in points.
@@ -50,7 +51,9 @@ export async i32 main(Sys sys) {
   i32 held = n / 20;
   string[] er = splitOn(a[3], 58 as u8);
   i32 epochs = parseInt(er[0]);
-  Adam opt = Adam.create(er.len() > 1 ? (parseInt(er[1]) as f64) / 10000.0 : 0.001);
+  f64 rate = er.len() > 1 ? (parseInt(er[1]) as f64) / 10000.0 : 0.001;
+  if (er.len() > 2) { rate = rate / (parseInt(er[2]) as f64); }
+  Adam opt = Adam.create(rate);
   i32 batch = 256;
   f64 last = 0.0;
   for (i32 e = 0; e < epochs; e++) {
