@@ -1,0 +1,87 @@
+// A wider network that plays exactly as a narrower one: its weights copied in, the new units fed at random but read
+// by nothing (their outgoing weights zero), so training can put them to use from where the narrow network left off.
+//
+//     wac run --allow-read --allow-write tools/widen.wac <from-config> <from.weights> <to-config> <out.weights>
+
+import { Sys } from "std";
+import { Device, loadWeights, saveWeightsNow } from "tensor";
+import { ValueConfig, ValueNet } from "../src/value.wac";
+
+// How an axis's new index maps to the old one (-1 when the unit is new): the same index, the first units of a wider
+// layer, or the rows-then-columns features that the dense layer joins.
+static i32 SAME = 0;
+static i32 UNITS = 1;
+static i32 JOINED = 2;
+
+i32 oldIndex(i32 kind, i32 i, i32 oldSize, ValueConfig o, ValueConfig n) {
+  if (kind == SAME) { return i; }
+  if (kind == UNITS) { return i < oldSize ? i : -1; }
+  if (i < 18 * n.rows) {
+    i32 c = i % n.rows;
+    return c < o.rows ? (i / n.rows) * o.rows + c : -1;
+  }
+  if (i < 18 * n.rows + 10 * n.cols) {
+    i32 t = i - 18 * n.rows;
+    i32 c = t % n.cols;
+    return c < o.cols ? 18 * o.rows + (t / n.cols) * o.cols + c : -1;
+  }
+  return 18 * o.rows + 10 * o.cols + (i - 18 * n.rows - 10 * n.cols);
+}
+
+export async i32 main(Sys sys) {
+  string[] a = sys.args();
+  Device d = Device.cpu();
+  d.seed(77 as i64);
+  ValueConfig oc = ValueConfig.named(a[0]);
+  ValueConfig nc = ValueConfig.named(a[2]);
+  ValueNet from = ValueNet.create(d, oc);
+  auto r = loadWeights(from.params, (await sys.readFile(a[1])).orElse(u8[]()));
+  if (r.isErr()) { sys.log("widen: " + r.err()!); return 1; }
+  ValueNet to = ValueNet.create(d, nc);
+  // Per parameter: each axis's kind, and which axis is the input (-1: none) and which the output.
+  i32[][] kinds = [
+    [SAME, SAME, SAME, UNITS], [UNITS],
+    [SAME, SAME, UNITS, UNITS], [UNITS],
+    [SAME, SAME, UNITS, UNITS], [UNITS],
+    [JOINED, UNITS], [UNITS],
+    [UNITS, UNITS], [UNITS],
+    [UNITS, SAME], [SAME],
+  ];
+  i32[] inputAxis = [2, -1, 2, -1, 2, -1, 0, -1, 0, -1, 0, -1];
+  for (i32 k = 0; k < to.params.len(); k++) {
+    i32[] ns = to.params[k].shape;
+    i32[] os = from.params[k].shape;
+    f32[] ov = from.params[k].valuesNow();
+    f32[] nv = to.params[k].valuesNow();
+    i32 rank = ns.len();
+    i32 out = rank - 1;
+    i32[] idx = i32[].filled(rank, 0);
+    for (i32 flat = 0; flat < nv.len(); flat++) {
+      i32 rest = flat;
+      for (i32 ax = rank - 1; ax >= 0; ax--) { idx[ax] = rest % ns[ax]; rest = rest / ns[ax]; }
+      i32 oldFlat = 0;
+      bool allOld = true;
+      bool inNew = false;
+      bool outOld = true;
+      for (i32 ax = 0; ax < rank; ax++) {
+        i32 o = oldIndex(kinds[k][ax], idx[ax], os[ax], oc, nc);
+        if (o < 0) {
+          allOld = false;
+          if (ax == inputAxis[k]) { inNew = true; }
+          if (ax == out) { outOld = false; }
+        }
+        oldFlat = oldFlat * os[ax] + (o < 0 ? 0 : o);
+      }
+      if (allOld) { nv[flat] = ov[oldFlat]; } else if (inNew && outOld) { nv[flat] = 0.0; }
+    }
+    // The output layer reads only the old units: everything new there is zero.
+    if (k == 10) {
+      for (i32 flat = 0; flat < nv.len(); flat++) { if (flat >= os[0]) { nv[flat] = 0.0; } }
+    }
+    to.params[k].assign(d.tensor(nv, ns));
+  }
+  auto w = await sys.writeFile(a[3], saveWeightsNow(to.params));
+  if (w.isErr()) { sys.log("widen: " + w.err()!); return 1; }
+  sys.log("widened \{a[1]} into \{a[3]}");
+  return 0;
+}

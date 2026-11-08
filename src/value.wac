@@ -23,7 +23,13 @@ export struct ValueConfig {
   ValueConfig standard() { return ValueConfig(16, 24, 16, 64); }
   /** Half the width throughout: about as fast to evaluate as the old model, for learning quickly what works. */
   ValueConfig small() { return ValueConfig(8, 16, 8, 32); }
-  ValueConfig named(string name) { return name == "small" ? ValueConfig.small() : ValueConfig.standard(); }
+  /** Twice the width throughout, about three times the work: for when the standard network stops improving. */
+  ValueConfig large() { return ValueConfig(32, 32, 32, 128); }
+  ValueConfig named(string name) {
+    if (name == "small") { return ValueConfig.small(); }
+    if (name == "large") { return ValueConfig.large(); }
+    return ValueConfig.standard();
+  }
 }
 
 /** The lines remaining as the network sees them: a fraction of a whole game, and the last ten in finer detail. */

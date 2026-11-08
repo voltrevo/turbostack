@@ -1,6 +1,6 @@
 // Play games with a model and report how it scores — the one number this project is measured by.
 //
-//     wac run --allow-read tools/evaluate.wac legacy|small|standard <weights> <from> <to> [lookahead]
+//     wac run --allow-read tools/evaluate.wac legacy|small|standard|large <weights> <from> <to> [lookahead]
 //
 // With `lookahead` k, the player — either model — looks one piece further for its k best placements: each is valued as
 // what it scores plus the mean, over the seven pieces that could come next, of the best that piece then allows. A
