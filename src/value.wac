@@ -1,0 +1,95 @@
+// The new model: a value network that says how many more points a board will score, learned by playing.
+//
+// **It values a board after a piece has landed**, given how many lines the game has left, as the score still to come —
+// not the game's final score, which would make it learn the score so far, a number it is handed. A player then puts
+// each piece where `points scored now + value of the board left` is largest.
+//
+// **It reads only the board and the lines remaining** — no hand-made features such as holes or bumpiness, so whatever
+// it knows about stacking it found itself. The board goes in as the old model's does, 21×12 with walls and a floor,
+// through a 4×3 convolution, and then two ways: a full-width convolution that summarises each row (how full it is, where
+// its gaps are) and a full-height one that summarises each column (how tall, what is buried in it). Both, and the lines
+// remaining, go to two dense layers with a skip connection and out to one number, in thousands of points.
+
+import { Device, Padding, Tensor, Variable, glorotUniform } from "tensor";
+import { Board } from "./board.wac";
+import { walledBoards } from "./legacy.wac";
+
+export struct ValueConfig {
+  i32 conv;
+  i32 rows;
+  i32 cols;
+  i32 hidden;
+
+  ValueConfig standard() { return ValueConfig(16, 24, 16, 64); }
+  /** Half the width throughout: about as fast to evaluate as the old model, for learning quickly what works. */
+  ValueConfig small() { return ValueConfig(8, 16, 8, 32); }
+  ValueConfig named(string name) { return name == "small" ? ValueConfig.small() : ValueConfig.standard(); }
+}
+
+/** The lines remaining as the network sees them: a fraction of a whole game, and the last ten in finer detail. */
+static i32 EXTRA = 3;
+
+/** Points per unit of the network's output. */
+export static f64 SCALE = 1000.0;
+
+export struct ValueNet {
+  ValueConfig config;
+  Variable[] params;
+
+  ValueNet create(Device d, ValueConfig c) {
+    i32 joined = 18 * c.rows + 10 * c.cols + EXTRA;
+    i32[][] shapes = [[4, 3, 1, c.conv], [c.conv], [1, 10, c.conv, c.rows], [c.rows], [18, 1, c.conv, c.cols], [c.cols],
+                      [joined, c.hidden], [c.hidden], [c.hidden, c.hidden], [c.hidden], [c.hidden, 1], [1]];
+    i32[] fanIn = [12, 1, 10 * c.conv, 1, 18 * c.conv, 1, joined, 1, c.hidden, 1, c.hidden, 1];
+    i32[] fanOut = [12 * c.conv, 1, 10 * c.rows, 1, 18 * c.cols, 1, c.hidden, 1, c.hidden, 1, 1, 1];
+    string[] names = ["conv/kernel", "conv/bias", "rows/kernel", "rows/bias", "cols/kernel", "cols/bias",
+                      "dense1/kernel", "dense1/bias", "dense2/kernel", "dense2/bias", "out/kernel", "out/bias"];
+    Variable[] ps = Variable[].filled(shapes.len(), d.variable(d.zeros([1]), "x"));
+    for (i32 k = 0; k < shapes.len(); k++) {
+      // Kernels from Glorot's uniform; biases, and the output layer, from zero — so an untrained network values every
+      // board at nothing, and what it learns first is what the targets say.
+      bool zero = shapes[k].len() == 1 || k == 10;
+      Tensor init = zero ? d.zeros(shapes[k]) : glorotUniform(d, shapes[k], fanIn[k], fanOut[k]);
+      ps[k] = d.variable(init, names[k]);
+      init.dispose();
+    }
+    return ValueNet(c, ps);
+  }
+
+  /** The lines remaining, `[n, 3]`. */
+  Tensor extras(this, Device d, Board[] boards) {
+    f32[] x = f32[].filled(boards.len() * EXTRA, 0.0);
+    for (i32 k = 0; k < boards.len(); k++) {
+      i32 l = boards[k].linesRemaining();
+      x[k * EXTRA] = (l as~ f32) / 130.0;
+      x[k * EXTRA + 1] = ((l < 10 ? l : 10) as~ f32) / 10.0;
+      x[k * EXTRA + 2] = l <= 4 ? 1.0 : 0.0;
+    }
+    return d.tensor(x, [boards.len(), EXTRA]);
+  }
+
+  /** Each board's value, `[n]`, in the network's units — thousands of points still to come. */
+  Tensor forward(this, Device d, Board[] boards) {
+    Variable[] p = this.params;
+    i32 n = boards.len();
+    Tensor a = walledBoards(d, boards).conv2d(p[0], [1, 1], Padding.Valid, [1, 1]).add(p[1]).leakyRelu(0.01);
+    Tensor rows = a.conv2d(p[2], [1, 1], Padding.Valid, [1, 1]).add(p[3]).leakyRelu(0.01).reshape([n, 18 * this.config.rows]);
+    Tensor cols = a.conv2d(p[4], [1, 1], Padding.Valid, [1, 1]).add(p[5]).leakyRelu(0.01).reshape([n, 10 * this.config.cols]);
+    Tensor joined = rows.concat([cols, this.extras(d, boards)], 1);
+    Tensor h1 = joined.matmul(p[6]).add(p[7]).leakyRelu(0.01);
+    Tensor h2 = h1.matmul(p[8]).add(p[9]).leakyRelu(0.01).add(h1);
+    return h2.matmul(p[10]).add(p[11]).reshape([n]);
+  }
+
+  /** Each board's value in points, as plain numbers. A finished game has nothing to come, whatever the network says. */
+  f32[] values(this, Device d, Board[] boards) {
+    if (boards.len() == 0) { return f32[](); }
+    Tensor t = d.tidy(() => this.forward(d, boards));
+    f32[] v = t.valuesNow();
+    t.dispose();
+    for (i32 k = 0; k < boards.len(); k++) {
+      v[k] = boards[k].finished ? 0.0 : ((v[k] as f64) * SCALE) as~ f32;
+    }
+    return v;
+  }
+}

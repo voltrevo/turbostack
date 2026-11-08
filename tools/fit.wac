@@ -1,0 +1,81 @@
+// Fit the network to the targets workers made: the next iteration's network.
+//
+//     wac run --allow-read --allow-write tools/fit.wac <config> <in.weights|none> <out.weights> <epochs> <data.bin>...
+//
+// A twentieth of the boards is held out and only measured, so the printed error says whether the network is learning
+// the targets or memorising them. Errors are root mean square, in points.
+
+import { Sys } from "std";
+import { Device, Tensor, loadWeights, saveWeightsNow, tensorsOf } from "tensor";
+import { Adam } from "tensor";
+import { Board } from "../src/board.wac";
+import { Examples } from "../src/selfplay.wac";
+import { parseInt } from "../src/text.wac";
+import { SCALE, ValueConfig, ValueNet } from "../src/value.wac";
+
+Board[] slice(Examples ex, i32[] order, i32 from, i32 to) {
+  Board[] out = Board[].filled(to - from, ex.boards.get(0));
+  for (i32 i = from; i < to; i++) { out[i - from] = ex.boards.get(order[i]); }
+  return out;
+}
+
+f32[] sliceTargets(Examples ex, i32[] order, i32 from, i32 to) {
+  f32[] out = f32[].filled(to - from, 0.0);
+  for (i32 i = from; i < to; i++) { out[i - from] = ((ex.targets.get(order[i]) as f64) / SCALE) as~ f32; }
+  return out;
+}
+
+export async i32 main(Sys sys) {
+  string[] a = sys.args();
+  Device d = Device.cpu();
+  d.seed(4242 as i64);
+  ValueNet net = ValueNet.create(d, ValueConfig.named(a[0]));
+  if (a[1] != "none") {
+    auto r = loadWeights(net.params, (await sys.readFile(a[1])).orElse(u8[]()));
+    if (r.isErr()) { sys.log("fit: " + r.err()!); return 1; }
+  }
+  Examples ex = Examples.create();
+  for (i32 k = 4; k < a.len(); k++) { ex.extend(Examples.decode((await sys.readFile(a[k])).orElse(u8[]()))); }
+  i32 n = ex.len();
+  i32[] order = i32[].filled(n, 0);
+  for (i32 i = 0; i < n; i++) { order[i] = i; }
+  for (i32 i = n - 1; i > 0; i--) {
+    i32 j = (d.random.uniform() * ((i + 1) as f64)) as~ i32;
+    i32 t = order[i];
+    order[i] = order[j];
+    order[j] = t;
+  }
+  i32 held = n / 20;
+  i32 epochs = parseInt(a[3]);
+  Adam opt = Adam.create(0.001);
+  i32 batch = 256;
+  f64 last = 0.0;
+  for (i32 e = 0; e < epochs; e++) {
+    f64 total = 0.0;
+    i32 steps = 0;
+    for (i32 at = held; at + batch <= n; at += batch) {
+      Board[] bs = slice(ex, order, at, at + batch);
+      Tensor y = d.vector(sliceTargets(ex, order, at, at + batch));
+      Tensor loss = opt.minimize(() => net.forward(d, bs).squaredDifference(y).mean([], false), net.params);
+      total += loss.item() as f64;
+      steps++;
+      loss.dispose();
+      y.dispose();
+    }
+    last = (total / (steps as f64)).sqrt() * SCALE;
+  }
+  // The held-out error, by the network as it plays: a finished board counts as nothing whatever it says.
+  f64 se = 0.0;
+  for (i32 at = 0; at < held; at += batch) {
+    i32 to = at + batch < held ? at + batch : held;
+    f32[] v = net.values(d, slice(ex, order, at, to));
+    for (i32 i = at; i < to; i++) {
+      f64 diff = (v[i - at] as f64) - (ex.targets.get(order[i]) as f64);
+      se += diff * diff;
+    }
+  }
+  sys.log("fit: \{n} boards, training error \{last.round()}, held-out error \{(se / (held as f64)).sqrt().round()}");
+  auto w = await sys.writeFile(a[2], saveWeightsNow(net.params));
+  if (w.isErr()) { sys.log("fit: " + w.err()!); return 1; }
+  return 0;
+}

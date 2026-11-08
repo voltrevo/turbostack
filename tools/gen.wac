@@ -1,0 +1,39 @@
+// One worker's share of an iteration: boards from the network's own games, each with its exact target.
+//
+//     wac run --allow-read --allow-write tools/gen.wac <config> <model.weights|none> <seed> <boards> <epsilon‰> <out.bin>
+//
+// `none` is an untrained network — the start of learning from nothing.
+
+import { Sys } from "std";
+import { Device, loadWeights } from "tensor";
+import { Board } from "../src/board.wac";
+import { Pieces } from "../src/game.wac";
+import { Examples, Exploration, boardsFromPlay, targets } from "../src/selfplay.wac";
+import { parseInt } from "../src/text.wac";
+import { ValueConfig, ValueNet } from "../src/value.wac";
+
+export async i32 main(Sys sys) {
+  string[] a = sys.args();
+  Device d = Device.cpu();
+  i32 seed = parseInt(a[2]);
+  d.seed(seed as i64);
+  ValueNet net = ValueNet.create(d, ValueConfig.named(a[0]));
+  if (a[1] != "none") {
+    auto r = loadWeights(net.params, (await sys.readFile(a[1])).orElse(u8[]()));
+    if (r.isErr()) { sys.log("gen: " + r.err()!); return 1; }
+  }
+  Pieces rng = Pieces.seeded(seed * 7919 + 17);
+  Board[] boards = boardsFromPlay(d, net, rng, parseInt(a[3]), Exploration((parseInt(a[4]) as f64) / 1000.0));
+  Examples ex = Examples.create();
+  // In slices, so the children of a slice of boards are valued in one batch without holding all of them at once.
+  for (i32 at = 0; at < boards.len(); at += 32) {
+    i32 to = at + 32 < boards.len() ? at + 32 : boards.len();
+    Board[] slice = Board[].filled(to - at, boards[0]);
+    for (i32 k = at; k < to; k++) { slice[k - at] = boards[k]; }
+    f32[] t = targets(d, net, slice);
+    for (i32 k = 0; k < slice.len(); k++) { ex.add(slice[k], t[k]); }
+  }
+  auto w = await sys.writeFile(a[5], ex.encode());
+  if (w.isErr()) { sys.log("gen: " + w.err()!); return 1; }
+  return 0;
+}

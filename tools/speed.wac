@@ -1,0 +1,37 @@
+// How many boards a second each network values, at the batch sizes play and training use.
+import { Sys } from "std";
+import { Device, Tensor } from "tensor";
+import { Board } from "../src/board.wac";
+import { Pieces } from "../src/game.wac";
+import { LegacyScoreModel } from "../src/legacy.wac";
+import { ValueConfig, ValueNet } from "../src/value.wac";
+
+export async i32 main(Sys sys) {
+  Device d = Device.cpu();
+  Pieces p = Pieces.seeded(9);
+  Board b = Board.empty(130);
+  for (i32 i = 0; i < 30; i++) { b = b.choices(p.next())[0]; }
+  i32[] sizes = [25, 175, 1750];
+  LegacyScoreModel old = LegacyScoreModel.create(d);
+  ValueNet[] nets = [ValueNet.create(d, ValueConfig(8, 16, 8, 32)), ValueNet.create(d, ValueConfig.standard())];
+  for (i32 n in sizes) {
+    Board[] bs = Board[].filled(n, b);
+    i32 reps = 20000 / n;
+    i64 t0 = await sys.monotonicNanos();
+    for (i32 r = 0; r < reps; r++) { d.tidy(() => old.predict(d, bs)).dispose(); }
+    f64 s = ((await sys.monotonicNanos()) - t0) as~ f64 / 1e9;
+    sys.log("old model, batch \{n}: \{((reps * n) as f64 / s).round()} boards/s");
+    for (i32 k = 0; k < nets.len(); k++) {
+      i64 t1 = await sys.monotonicNanos();
+      for (i32 r = 0; r < reps; r++) { nets[k].values(d, bs); }
+      f64 s1 = ((await sys.monotonicNanos()) - t1) as~ f64 / 1e9;
+      sys.log("value net \{k}, batch \{n}: \{((reps * n) as f64 / s1).round()} boards/s");
+    }
+  }
+  i32 moves = 0;
+  i64 t2 = await sys.monotonicNanos();
+  for (i32 r = 0; r < 2000; r++) { moves += b.choices(r % 7).len(); }
+  f64 s2 = ((await sys.monotonicNanos()) - t2) as~ f64 / 1e9;
+  sys.log("move generation: \{((moves as f64) / s2).round()} choices/s");
+  return 0;
+}

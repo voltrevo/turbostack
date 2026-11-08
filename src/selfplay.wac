@@ -1,0 +1,153 @@
+// Learning to play from nothing: boards from the network's own games, each given a target the network is then fitted
+// to — fitted value iteration, with the expectation over the next piece computed exactly.
+//
+// **A board's target is what it is worth if the network plays on well from it**: for each of the seven pieces that
+// could come next, equally likely, the best of `points that placement scores + the network's value of the board it
+// leaves`, a finished game's board worth nothing — averaged over the seven. No playouts, so no sampling noise: every
+// target is the same number however often it is computed, which is what lets this learn from a network that knows
+// nothing. turbostack's targets were the mean of a hundred random twenty-move playouts, and needed a network that
+// already played tolerably — learned from a person's games — before they meant anything.
+//
+// **The lines remaining do the rest.** A board with three lines to go is worth what its next piece can score, and a
+// network that has learned that is the target for boards with seven to go, and so on up: knowledge of how to finish a
+// game flows back, iteration by iteration, to how to start one. So games are played to every horizon from 1 to 130
+// lines, not only full ones.
+
+import { Buf, Vec } from "core";
+import { Device } from "tensor";
+import { Board, PIECE_COUNT } from "./board.wac";
+import { Pieces, argmax } from "./game.wac";
+import { ValueNet } from "./value.wac";
+
+/** Boards and their targets, in points. */
+export struct Examples {
+  Vec<Board> boards;
+  Vec<f32> targets;
+
+  Examples create() { return Examples(Vec.create(), Vec.create()); }
+  i32 len(const this) { return this.boards.len(); }
+
+  void add(this, Board b, f32 target) {
+    this.boards.push(b);
+    this.targets.push(target);
+  }
+
+  void extend(this, Examples other) {
+    for (i32 i = 0; i < other.len(); i++) { this.add(other.boards.get(i), other.targets.get(i)); }
+  }
+
+  /** As bytes: per example, the ten columns, lines cleared, lines in the game, score and tetrises as `i32`, then the target as `f32`. */
+  u8[] encode(this) {
+    Buf b = Buf.create();
+    for (i32 i = 0; i < this.len(); i++) {
+      Board x = this.boards.get(i);
+      for (i32 j = 0; j < 10; j++) { b.pushU32(x.cols[j] as@ u32); }
+      b.pushU32(x.linesCleared as@ u32);
+      b.pushU32(x.linesMax as@ u32);
+      b.pushU32(x.score as@ u32);
+      b.pushU32(x.tetrises as@ u32);
+      b.pushU32(f32.toBits(this.targets.get(i)));
+    }
+    return b.bytes();
+  }
+
+  Examples decode(u8[] bytes) {
+    Examples out = Examples.create();
+    i32 at = 0;
+    while (at + 60 <= bytes.len()) {
+      i32[] v = i32[].filled(15, 0);
+      for (i32 k = 0; k < 15; k++) {
+        i32 o = at + 4 * k;
+        v[k] = (bytes[o] as i32) | ((bytes[o + 1] as i32) << 8) | ((bytes[o + 2] as i32) << 16) | ((bytes[o + 3] as i32) << 24);
+      }
+      Board b = Board.empty(v[11]);
+      for (i32 j = 0; j < 10; j++) {
+        for (i32 i = 0; i < 20; i++) { if ((v[j] & (1 << (19 - i))) != 0) { b.flip(i, j); } }
+      }
+      b.linesCleared = v[10];
+      b.score = v[12];
+      b.tetrises = v[13];
+      out.add(b, f32.fromBits(v[14] as@ u32));
+      at += 60;
+    }
+    return out;
+  }
+}
+
+/**
+ * The target of each of `boards`: the mean over the seven pieces of the best `points + value` they allow, nothing for a
+ * piece with nowhere to go. Every child of every board is valued in one batch.
+ */
+export f32[] targets(Device d, ValueNet net, Board[] boards) {
+  Vec<Board> children = Vec.create();
+  i32[] counts = i32[].filled(boards.len() * PIECE_COUNT, 0);
+  for (i32 k = 0; k < boards.len(); k++) {
+    for (i32 p = 0; p < PIECE_COUNT; p++) {
+      Board[] cs = boards[k].choices(p);
+      counts[k * PIECE_COUNT + p] = cs.len();
+      for (Board c in cs) { children.push(c); }
+    }
+  }
+  Board[] all = children.toArray();
+  f32[] v = net.values(d, all);
+  f32[] out = f32[].filled(boards.len(), 0.0);
+  i32 at = 0;
+  for (i32 k = 0; k < boards.len(); k++) {
+    f64 total = 0.0;
+    for (i32 p = 0; p < PIECE_COUNT; p++) {
+      i32 n = counts[k * PIECE_COUNT + p];
+      f64 best = 0.0;
+      for (i32 c = 0; c < n; c++) {
+        Board ch = all[at + c];
+        f64 q = ((ch.score - boards[k].score) as f64) + (v[at + c] as f64);
+        if (c == 0 || q > best) { best = q; }
+      }
+      total += best;
+      at += n;
+    }
+    out[k] = (total / (PIECE_COUNT as f64)) as~ f32;
+  }
+  return out;
+}
+
+/** How the games that boards are drawn from are played. */
+export struct Exploration {
+  /** The chance a piece is put somewhere at random rather than where the network would put it. */
+  f64 epsilon;
+}
+
+/**
+ * Boards from games the network plays — each to a horizon from 1 to 130 lines, so every number of lines remaining is
+ * seen — until there are `want` of them, unfinished ones only: a finished game's board is worth nothing, and the
+ * network is never asked.
+ */
+export Board[] boardsFromPlay(Device d, ValueNet net, Pieces rng, i32 want, Exploration x) {
+  Vec<Board> out = Vec.create();
+  while (out.len() < want) {
+    i32 lines = 1 + ((rng.uniform() * 130.0).floor() as~ i32);
+    if (rng.uniform() < 0.3) { lines = 130; }
+    Board b = Board.empty(lines);
+    while (!b.finished && out.len() < want) {
+      Board[] cs = b.choices(rng.next());
+      if (cs.len() == 0) { break; }
+      i32 pick = 0;
+      if (rng.uniform() < x.epsilon) {
+        pick = (rng.uniform() * (cs.len() as f64)).floor() as~ i32;
+      } else {
+        f32[] v = net.values(d, cs);
+        for (i32 i = 0; i < cs.len(); i++) { v[i] = (((cs[i].score - b.score) as f64) + (v[i] as f64)) as~ f32; }
+        pick = argmax(v);
+      }
+      b = cs[pick];
+      if (!b.finished) { out.push(b); }
+    }
+  }
+  return out.toArray();
+}
+
+/** The network's own player: each piece where `points now + value of the board left` is largest. */
+export f32[] playerValues(Device d, ValueNet net, Board from, Board[] choices) {
+  f32[] v = net.values(d, choices);
+  for (i32 i = 0; i < choices.len(); i++) { v[i] = (((choices[i].score - from.score) as f64) + (v[i] as f64)) as~ f32; }
+  return v;
+}
