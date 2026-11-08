@@ -3,7 +3,7 @@
 # network before it — one iteration stale, as asynchronous self-play usually is — so the fit, which wac runs on one
 # thread, no longer leaves three cores idle. An iteration takes as long as the slower of the two, not their sum.
 #
-#     EPOCHS=1:3 EVAL_EVERY=4 sh tools/train-pipe.sh <run> <config> <iterations> <boards-per-iteration> <epsilon‰> \
+#     EPOCHS=1:3 EVAL_EVERY=4 LOOK=0 sh tools/train-pipe.sh <run> <config> <iterations> <boards-per-iteration> <epsilon‰> \
 #         <replay-iterations> <start-iteration> <λ‰ (negative for TD)> <bonus> <bonus-fades-by>
 #
 # Same files as train.sh — runs/<run>/model-<i>.weights, data-<i>-<w>.bin, log.txt — so either script continues the other.
@@ -26,7 +26,7 @@ generate() {
   g_pids=""
   for g_w in $(seq 1 $g_n); do
     wac run --allow-read --allow-write tools/gen.wac "$config" "$g_model" $((g_it * 100 + g_w)) "$g_each" "$eps" \
-      "$dir/data-$g_it-$g_w.bin" "$lambda" "$(bonusAt $g_it)" &
+      "$dir/data-$g_it-$g_w.bin" "$lambda" "$(bonusAt $g_it)" ${LOOK:-0} &
     g_pids="$g_pids $!"
   done
   # Only the workers: `wait` alone would also wait for the fit running beside them.

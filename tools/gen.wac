@@ -1,9 +1,11 @@
 // One worker's share of an iteration: boards from the network's own games, each with its exact target.
 //
-//     wac run --allow-read --allow-write tools/gen.wac <config> <model.weights|none> <seed> <boards> <epsilon‰> <out.bin> [λ‰ [bonus]]
+//     wac run --allow-read --allow-write tools/gen.wac <config> <model.weights|none> <seed> <boards> <epsilon‰> <out.bin> [λ‰ [bonus [lookahead]]]
 //
 // With λ, targets are λ-returns (`examplesFromPlay`); with λ negative, TD(λ) for -λ (`examplesTD`); without, the
 // exact one-step targets alone.
+//
+// With `lookahead` k the λ-return games are played with one piece of lookahead over the k best placements.
 //
 // `none` is an untrained network — the start of learning from nothing.
 
@@ -28,20 +30,20 @@ export async i32 main(Sys sys) {
   Pieces rng = Pieces.seeded(seed * 7919 + 17);
   // λ given as negative thousandths: TD(λ), bootstrapping from the network rather than the exact expectation.
   if (a.len() > 6 && parseInt(a[6]) < 0) {
-    Examples tx = examplesTD(d, net, rng, parseInt(a[3]), Exploration((parseInt(a[4]) as f64) / 1000.0),
+    Examples tx = examplesTD(d, net, rng, parseInt(a[3]), Exploration((parseInt(a[4]) as f64) / 1000.0, a.len() > 8 ? parseInt(a[8]) : 0),
                              (-(parseInt(a[6])) as f64) / 1000.0, a.len() > 7 ? parseInt(a[7]) as f64 : 0.0);
     auto tw = await sys.writeFile(a[5], tx.encode());
     if (tw.isErr()) { sys.log("gen: " + tw.err()!); return 1; }
     return 0;
   }
   if (a.len() > 6) {
-    Examples lx = examplesFromPlay(d, net, rng, parseInt(a[3]), Exploration((parseInt(a[4]) as f64) / 1000.0),
+    Examples lx = examplesFromPlay(d, net, rng, parseInt(a[3]), Exploration((parseInt(a[4]) as f64) / 1000.0, a.len() > 8 ? parseInt(a[8]) : 0),
                                    (parseInt(a[6]) as f64) / 1000.0, a.len() > 7 ? parseInt(a[7]) as f64 : 0.0);
     auto lw = await sys.writeFile(a[5], lx.encode());
     if (lw.isErr()) { sys.log("gen: " + lw.err()!); return 1; }
     return 0;
   }
-  Board[] boards = boardsFromPlay(d, net, rng, parseInt(a[3]), Exploration((parseInt(a[4]) as f64) / 1000.0));
+  Board[] boards = boardsFromPlay(d, net, rng, parseInt(a[3]), Exploration((parseInt(a[4]) as f64) / 1000.0, a.len() > 8 ? parseInt(a[8]) : 0));
   Examples ex = Examples.create();
   // In slices, so the children of a slice of boards are valued in one batch without holding all of them at once.
   for (i32 at = 0; at < boards.len(); at += 32) {

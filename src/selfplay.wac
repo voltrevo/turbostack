@@ -17,6 +17,7 @@ import { Buf, Vec } from "core";
 import { Device } from "tensor";
 import { Board, PIECE_COUNT } from "./board.wac";
 import { Pieces, argmax } from "./game.wac";
+import { lookahead } from "./lookahead.wac";
 import { ValueNet } from "./value.wac";
 
 /** Boards and their targets, in points. */
@@ -115,6 +116,11 @@ export f32[] targets(Device d, ValueNet net, Board[] boards, f64 bonus) {
 export struct Exploration {
   /** The chance a piece is put somewhere at random rather than where the network would put it. */
   f64 epsilon;
+  /**
+   * How many of its best placements the player values again a piece deeper (`lookahead`), 0 for none: a stronger
+   * player than the network alone, whose games teach the network the value of better play than its own.
+   */
+  i32 look;
 }
 
 /**
@@ -219,6 +225,11 @@ export Examples examplesFromPlay(Device d, ValueNet net, Pieces rng, i32 want, E
         f32[] pv = playerValues(d, net, b, cs);
         for (i32 i = 0; i < cs.len(); i++) {
           if (!(cs[i].finished && cs[i].linesCleared < cs[i].linesMax)) { pv[i] = ((pv[i] as f64) + bonus) as~ f32; }
+        }
+        if (x.look > 0) {
+          // Final scores, as lookahead wants them: the same order, offset by the score so far.
+          for (i32 i = 0; i < cs.len(); i++) { pv[i] = ((pv[i] as f64) + (b.score as f64)) as~ f32; }
+          pv = lookahead(cs, pv, x.look, (Board[] bs) => finalScores(d, net, bs));
         }
         pick = argmax(pv);
       }
@@ -325,5 +336,12 @@ export Examples examplesTD(Device d, ValueNet net, Pieces rng, i32 want, Explora
 export f32[] playerValues(Device d, ValueNet net, Board from, Board[] choices) {
   f32[] v = net.values(d, choices);
   for (i32 i = 0; i < choices.len(); i++) { v[i] = (((choices[i].score - from.score) as f64) + (v[i] as f64)) as~ f32; }
+  return v;
+}
+
+/** Each board's score plus the network's value of it: the final score it expects. */
+export f32[] finalScores(Device d, ValueNet net, Board[] boards) {
+  f32[] v = net.values(d, boards);
+  for (i32 i = 0; i < boards.len(); i++) { v[i] = (((boards[i].score as f64) + (v[i] as f64))) as~ f32; }
   return v;
 }

@@ -1,0 +1,60 @@
+// One piece of lookahead, for either model: a placement valued as the mean, over the seven pieces that could come next,
+// of the best final score each then allows. A placement that leaves the stack needing one particular piece is then
+// seen to be the gamble it is.
+
+import { Vec } from "core";
+import { Board, PIECE_COUNT } from "./board.wac";
+
+/**
+ * The `k` best of `choices` by `v`, valued again a piece deeper: each as the mean, over the seven pieces that could come
+ * next, of the best final score that piece then allows — or its own score, if the game ends there, or nothing for a
+ * piece with nowhere to go. The rest are put below them. Every board a piece deeper is valued in one batch.
+ */
+export f32[] lookahead(Board[] choices, f32[] v, i32 look, fn<f32[](Board[])> finalScore) {
+  i32 k = look < choices.len() ? look : choices.len();
+  i32[] top = i32[].filled(k, 0);
+  bool[] taken = bool[].filled(choices.len(), false);
+  for (i32 t = 0; t < k; t++) {
+    i32 best = -1;
+    for (i32 i = 0; i < choices.len(); i++) { if (!taken[i] && (best < 0 || v[i] > v[best])) { best = i; } }
+    taken[best] = true;
+    top[t] = best;
+  }
+  Vec<Board> deeper = Vec.create();
+  i32[] counts = i32[].filled(k * PIECE_COUNT, 0);
+  for (i32 t = 0; t < k; t++) {
+    Board c = choices[top[t]];
+    if (c.finished) { continue; }
+    for (i32 p = 0; p < PIECE_COUNT; p++) {
+      Board[] cs = c.choices(p);
+      counts[t * PIECE_COUNT + p] = cs.len();
+      for (Board x in cs) { deeper.push(x); }
+    }
+  }
+  f32[] dv = deeper.len() > 0 ? finalScore(deeper.toArray()) : f32[]();
+  Board[] all = deeper.toArray();
+  f32[] out = f32[].filled(choices.len(), -1.0e30);
+  i32 at = 0;
+  for (i32 t = 0; t < k; t++) {
+    Board c = choices[top[t]];
+    if (c.finished) {
+      out[top[t]] = c.score as~ f32;
+      continue;
+    }
+    f64 total = 0.0;
+    for (i32 p = 0; p < PIECE_COUNT; p++) {
+      i32 n = counts[t * PIECE_COUNT + p];
+      // A piece with nowhere to go ends the game where it stands.
+      f64 best = n == 0 ? (c.score as f64) : -1.0e30;
+      for (i32 j = 0; j < n; j++) {
+        Board x = all[at + j];
+        f64 q = x.finished ? (x.score as f64) : (dv[at + j] as f64);
+        if (q > best) { best = q; }
+      }
+      total += best;
+      at += n;
+    }
+    out[top[t]] = (total / (PIECE_COUNT as f64)) as~ f32;
+  }
+  return out;
+}
