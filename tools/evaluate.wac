@@ -1,0 +1,47 @@
+// Play games with a model and report how it scores — the one number this project is measured by.
+//
+//     wac run --allow-read tools/evaluate.wac legacy <scoreModel.weights> <from> <to>
+//
+// Plays the games of seeds `from` to `to` (mulberry32 piece sequences, 130 lines each, greedy), printing one line a
+// game — `<seed> <score> <positions> <lines> <tetrises>`, as `turbostack-compare`'s `baseline.ts` does — and then the
+// mean score with its standard error.
+
+import { Sys } from "std";
+import { Device, Tensor, loadWeights } from "tensor";
+import { Board } from "../src/board.wac";
+import { Evaluator, GameResult, Pieces, play } from "../src/game.wac";
+import { LegacyScoreModel } from "../src/legacy.wac";
+import { parseInt } from "../src/text.wac";
+
+export async i32 main(Sys sys) {
+  string[] args = sys.args();
+  Device d = Device.cpu();
+  LegacyScoreModel m = LegacyScoreModel.create(d);
+  auto loaded = loadWeights(m.params, (await sys.readFile(args[1])).orElse(u8[]()));
+  if (loaded.isErr()) {
+    sys.log("cannot load the weights: " + loaded.err()!);
+    return 1;
+  }
+  Evaluator e = Evaluator((Board[] bs) => {
+    Tensor v = d.tidy(() => m.predict(d, bs));
+    f32[] out = v.valuesNow();
+    v.dispose();
+    return out;
+  });
+  i32 from = parseInt(args[2]);
+  i32 to = parseInt(args[3]);
+  f64 sum = 0.0;
+  f64 sq = 0.0;
+  i32 n = 0;
+  for (i32 seed = from; seed <= to; seed++) {
+    GameResult r = play(Board.empty(130), Pieces.seeded(seed), e);
+    sys.log("\{seed} \{r.score} \{r.positions} \{r.lines} \{r.tetrises}");
+    sum += r.score as f64;
+    sq += (r.score as f64) * (r.score as f64);
+    n++;
+  }
+  f64 mean = sum / (n as f64);
+  f64 sd = ((sq / (n as f64) - mean * mean) * (n as f64) / ((n - 1) as f64)).sqrt();
+  sys.log("mean \{mean} ± \{sd / (n as f64).sqrt()} (standard error), standard deviation \{sd}, \{n} games");
+  return 0;
+}

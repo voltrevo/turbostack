@@ -1,0 +1,64 @@
+// turbostack's score model, the old method: its architecture, so its published weights can play here and set the
+// number to beat.
+//
+// The board is 21×12 — the 20×10 cells with a solid column either side and a solid row beneath — through a 5×3
+// convolution to 8 channels and a 1×10 to 16, each with a leaky ReLU (α 0.01), flattened to 272 and joined by the lines
+// remaining; then two dense layers of 16, leaky, the second added to the first, a dense layer to one number, and the
+// score so far added to that: a prediction of the game's final score. Its weights load from a checkpoint
+// `turbostack-compare` converts from the TensorFlow.js files, the variables in the same order.
+
+import { Device, Padding, Tensor, Variable } from "tensor";
+import { Board } from "./board.wac";
+
+/** Boards as the old model reads them: `[n, 21, 12, 1]`, walls and floor solid. */
+export Tensor walledBoards(Device d, Board[] boards) {
+  f32[] x = f32[].filled(boards.len() * 252, 0.0);
+  for (i32 k = 0; k < boards.len(); k++) {
+    i32 base = k * 252;
+    Board b = boards[k];
+    for (i32 i = 0; i < 20; i++) {
+      x[base + i * 12] = 1.0;
+      x[base + i * 12 + 11] = 1.0;
+      i32 row = b.rows[i];
+      for (i32 j = 0; j < 10; j++) { if ((row & (1 << (9 - j))) != 0) { x[base + i * 12 + j + 1] = 1.0; } }
+    }
+    for (i32 j = 0; j < 12; j++) { x[base + 240 + j] = 1.0; }
+  }
+  return d.tensor(x, [boards.len(), 21, 12, 1]);
+}
+
+export struct LegacyScoreModel {
+  Variable[] params;
+
+  /** The architecture, with zeros for weights: `loadWeights(model.params, …)` gives it the published ones. */
+  LegacyScoreModel create(Device d) {
+    i32[][] shapes = [[5, 3, 1, 8], [8], [1, 10, 8, 16], [16], [273, 16], [16], [16, 16], [16], [16, 1], [1]];
+    string[] names = ["conv1/kernel", "conv1/bias", "conv2/kernel", "conv2/bias", "dense1/kernel", "dense1/bias",
+                      "dense2/kernel", "dense2/bias", "out/kernel", "out/bias"];
+    Variable[] out = Variable[].filled(10, d.variable(d.zeros([1]), "x"));
+    for (i32 k = 0; k < 10; k++) {
+      Tensor z = d.zeros(shapes[k]);
+      out[k] = d.variable(z, names[k]);
+      z.dispose();
+    }
+    return LegacyScoreModel(out);
+  }
+
+  /** Each board's predicted final score, `[n]`. */
+  Tensor predict(this, Device d, Board[] boards) {
+    Variable[] p = this.params;
+    i32 n = boards.len();
+    f32[] score = f32[].filled(n, 0.0);
+    f32[] remaining = f32[].filled(n, 0.0);
+    for (i32 k = 0; k < n; k++) {
+      score[k] = boards[k].score as~ f32;
+      remaining[k] = boards[k].linesRemaining() as~ f32;
+    }
+    Tensor h = walledBoards(d, boards).conv2d(p[0], [1, 1], Padding.Valid, [1, 1]).add(p[1]).leakyRelu(0.01);
+    h = h.conv2d(p[2], [1, 1], Padding.Valid, [1, 1]).add(p[3]).leakyRelu(0.01);
+    Tensor joined = h.reshape([n, 272]).concat([d.tensor(remaining, [n, 1])], 1);
+    Tensor d1 = joined.matmul(p[4]).add(p[5]).leakyRelu(0.01);
+    Tensor d2 = d1.matmul(p[6]).add(p[7]).leakyRelu(0.01).add(d1);
+    return d2.matmul(p[8]).add(p[9]).reshape([n]).add(d.tensor(score, [n]));
+  }
+}

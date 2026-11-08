@@ -1,0 +1,72 @@
+// Check the old model's port: with the converted weights, its prediction for each board `turbostack-compare`'s
+// `modelvec.ts` recorded must be TensorFlow.js's, to within float rounding.
+//
+//     wac run --allow-read tools/checklegacy.wac <scoreModel.weights> <predictions.txt>
+
+import { Sys } from "std";
+import { Device, Tensor, loadWeights } from "tensor";
+import { Board } from "../src/board.wac";
+import { LegacyScoreModel } from "../src/legacy.wac";
+import { parseInt, splitOn } from "../src/text.wac";
+
+f64 parseFloat(string s) {
+  // Machine-written: digits, an optional sign, a point, and perhaps an exponent.
+  u8[] b = s.toBytes();
+  f64 sign = 1.0;
+  i32 i = 0;
+  if (b[0] == 45) { sign = -1.0; i = 1; }
+  f64 v = 0.0;
+  while (i < b.len() && b[i] >= 48 && b[i] <= 57) { v = v * 10.0 + ((b[i] as i32) - 48) as f64; i++; }
+  if (i < b.len() && b[i] == 46) {
+    i++;
+    f64 scale = 0.1;
+    while (i < b.len() && b[i] >= 48 && b[i] <= 57) { v += (((b[i] as i32) - 48) as f64) * scale; scale /= 10.0; i++; }
+  }
+  if (i < b.len() && (b[i] == 101 || b[i] == 69)) {
+    u8[] rest = u8[].filled(b.len() - i - 1, 0 as u8);
+    rest.copyFrom(b, i + 1, 0, rest.len());
+    string e = string.fromBytes(rest);
+    if (e.len() > 0 && e.slice(0, 1) == "+") { e = e.slice(1, e.len()); }
+    i32 ex = parseInt(e);
+    for (i32 k = 0; k < (ex < 0 ? -ex : ex); k++) { v = ex < 0 ? v / 10.0 : v * 10.0; }
+  }
+  return sign * v;
+}
+
+export async i32 main(Sys sys) {
+  string[] args = sys.args();
+  Device d = Device.cpu();
+  LegacyScoreModel m = LegacyScoreModel.create(d);
+  auto loaded = loadWeights(m.params, (await sys.readFile(args[0])).orElse(u8[]()));
+  if (loaded.isErr()) {
+    sys.log("cannot load the weights: " + loaded.err()!);
+    return 1;
+  }
+  string[] lines = splitOn(string.fromBytes((await sys.readFile(args[1])).orElse(u8[]())), 10 as u8);
+  Board[] boards = Board[].filled(0, Board.empty(1));
+  i32 n = 0;
+  for (string l in lines) { if (l.len() > 0) { n++; } }
+  boards = Board[].filled(n, Board.empty(1));
+  f64[] want = f64[].filled(n, 0.0);
+  i32 k = 0;
+  for (string l in lines) {
+    if (l.len() == 0) { continue; }
+    string[] f = splitOn(l, 32 as u8);
+    Board b = Board.fromCompact(f[0], parseInt(f[2]));
+    b.linesCleared = parseInt(f[1]);
+    b.score = parseInt(f[3]);
+    boards[k] = b;
+    want[k] = parseFloat(f[4]);
+    k++;
+  }
+  f32[] got = m.predict(d, boards).valuesNow();
+  f64 worst = 0.0;
+  i32 worstAt = 0;
+  for (i32 i = 0; i < n; i++) {
+    f64 diff = (got[i] as f64) - want[i];
+    if (diff < 0.0) { diff = -diff; }
+    if (diff > worst) { worst = diff; worstAt = i; }
+  }
+  sys.log("\{n} boards: largest difference \{worst} (board \{worstAt}: \{got[worstAt]} here, \{want[worstAt]} in TensorFlow.js)");
+  return worst < 0.05 ? 0 : 1;
+}
