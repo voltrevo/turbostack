@@ -1,7 +1,10 @@
 // Play games with a model and report how it scores — the one number this project is measured by.
 //
-//     wac run --allow-read tools/evaluate.wac legacy <scoreModel.weights> <from> <to>
-//     wac run --allow-read tools/evaluate.wac small|standard <value.weights> <from> <to>
+//     wac run --allow-read tools/evaluate.wac legacy|small|standard <weights> <from> <to> [lookahead]
+//
+// With `lookahead` k, the player — either model — looks one piece further for its k best placements: each is valued as
+// what it scores plus the mean, over the seven pieces that could come next, of the best that piece then allows. A
+// placement that leaves the stack needing one particular piece is then seen to be the gamble it is.
 //
 // Plays the games of seeds `from` to `to` (mulberry32 piece sequences, 130 lines each, greedy), printing one line a
 // game — `<seed> <score> <positions> <lines> <tetrises>`, as `turbostack-compare`'s `baseline.ts` does — and then the
@@ -9,18 +12,76 @@
 
 import { Sys } from "std";
 import { Device, Tensor, loadWeights } from "tensor";
-import { Board } from "../src/board.wac";
+import { Vec } from "core";
+import { Board, PIECE_COUNT } from "../src/board.wac";
 import { Evaluator, GameResult, Pieces, play } from "../src/game.wac";
 import { LegacyScoreModel } from "../src/legacy.wac";
-import { playerValues } from "../src/selfplay.wac";
+
 import { ValueConfig, ValueNet } from "../src/value.wac";
 import { parseInt } from "../src/text.wac";
+
+/**
+ * The `k` best of `choices` by `v`, valued again a piece deeper: each as the mean, over the seven pieces that could come
+ * next, of the best final score that piece then allows — or its own score, if the game ends there, or nothing for a
+ * piece with nowhere to go. The rest are put below them. Every board a piece deeper is valued in one batch.
+ */
+f32[] lookahead(Board[] choices, f32[] v, i32 look, fn<f32[](Board[])> finalScore) {
+  i32 k = look < choices.len() ? look : choices.len();
+  i32[] top = i32[].filled(k, 0);
+  bool[] taken = bool[].filled(choices.len(), false);
+  for (i32 t = 0; t < k; t++) {
+    i32 best = -1;
+    for (i32 i = 0; i < choices.len(); i++) { if (!taken[i] && (best < 0 || v[i] > v[best])) { best = i; } }
+    taken[best] = true;
+    top[t] = best;
+  }
+  Vec<Board> deeper = Vec.create();
+  i32[] counts = i32[].filled(k * PIECE_COUNT, 0);
+  for (i32 t = 0; t < k; t++) {
+    Board c = choices[top[t]];
+    if (c.finished) { continue; }
+    for (i32 p = 0; p < PIECE_COUNT; p++) {
+      Board[] cs = c.choices(p);
+      counts[t * PIECE_COUNT + p] = cs.len();
+      for (Board x in cs) { deeper.push(x); }
+    }
+  }
+  f32[] dv = deeper.len() > 0 ? finalScore(deeper.toArray()) : f32[]();
+  Board[] all = deeper.toArray();
+  f32[] out = f32[].filled(choices.len(), -1.0e30);
+  i32 at = 0;
+  for (i32 t = 0; t < k; t++) {
+    Board c = choices[top[t]];
+    if (c.finished) {
+      out[top[t]] = c.score as~ f32;
+      continue;
+    }
+    f64 total = 0.0;
+    for (i32 p = 0; p < PIECE_COUNT; p++) {
+      i32 n = counts[t * PIECE_COUNT + p];
+      // A piece with nowhere to go ends the game where it stands.
+      f64 best = n == 0 ? (c.score as f64) : -1.0e30;
+      for (i32 j = 0; j < n; j++) {
+        Board x = all[at + j];
+        f64 q = x.finished ? (x.score as f64) : (dv[at + j] as f64);
+        if (q > best) { best = q; }
+      }
+      total += best;
+      at += n;
+    }
+    out[top[t]] = (total / (PIECE_COUNT as f64)) as~ f32;
+  }
+  return out;
+}
 
 export async i32 main(Sys sys) {
   string[] args = sys.args();
   Device d = Device.cpu();
   u8[] weights = (await sys.readFile(args[1])).orElse(u8[]());
-  Evaluator e;
+  i32 look = args.len() > 4 ? parseInt(args[4]) : 0;
+  // Each model as one thing: an estimate of the game's final score from a board. The old model is one already; the
+  // new one adds its value — points still to come — to the score so far, and a finished game comes to its score.
+  fn<f32[](Board[])> finalScore;
   if (args[0] == "legacy") {
     LegacyScoreModel m = LegacyScoreModel.create(d);
     auto loaded = loadWeights(m.params, weights);
@@ -28,12 +89,12 @@ export async i32 main(Sys sys) {
       sys.log("cannot load the weights: " + loaded.err()!);
       return 1;
     }
-    e = Evaluator((Board[] bs) => {
+    finalScore = (Board[] bs) => {
       Tensor v = d.tidy(() => m.predict(d, bs));
       f32[] out = v.valuesNow();
       v.dispose();
       return out;
-    });
+    };
   } else {
     ValueNet net = ValueNet.create(d, ValueConfig.named(args[0]));
     auto loaded = loadWeights(net.params, weights);
@@ -41,14 +102,17 @@ export async i32 main(Sys sys) {
       sys.log("cannot load the weights: " + loaded.err()!);
       return 1;
     }
-    // Every choice comes from the same board, whose score each choice's includes: so `score + value` ranks them as
-    // `points now + value` does.
-    e = Evaluator((Board[] bs) => {
+    finalScore = (Board[] bs) => {
       f32[] v = net.values(d, bs);
       for (i32 i = 0; i < bs.len(); i++) { v[i] = (((bs[i].score as f64) + (v[i] as f64))) as~ f32; }
       return v;
-    });
+    };
   }
+  Evaluator e = Evaluator((Board[] bs) => {
+    f32[] v = finalScore(bs);
+    if (look == 0) { return v; }
+    return lookahead(bs, v, look, finalScore);
+  });
   i32 from = parseInt(args[2]);
   i32 to = parseInt(args[3]);
   f64 sum = 0.0;
