@@ -1,0 +1,82 @@
+// Playing a game: a seeded sequence of pieces, a player that values boards, and what the game came to.
+//
+// **Every comparison here is made on the same piece sequences.** Much of a game's score is the luck of its pieces, so
+// two players measured on different games differ by that luck as well as by their play; measured on the same games,
+// the difference is their play. The sequence is mulberry32 from a seed — a generator small enough that the TypeScript
+// harness in `turbostack-compare` computes the very same pieces, so the original plays these games too.
+
+import { Board, PIECE_COUNT } from "./board.wac";
+
+/** mulberry32: one `u32` of state, and a piece number from each step. */
+export struct Pieces {
+  i32 state;
+
+  Pieces seeded(i32 seed) { return Pieces(seed); }
+
+  /** The next number in [0, 1), as mulberry32 computes it in JavaScript. */
+  f64 uniform(this) {
+    this.state = this.state + 0x6D2B79F5;
+    i32 a = this.state;
+    i32 t = (a ^ (a >>> 15)) * (1 | a);
+    t = (t + ((t ^ (t >>> 7)) * (61 | t))) ^ t;
+    u32 v = (t ^ (t >>> 14)) as@ u32;
+    return (v as f64) / 4294967296.0;
+  }
+
+  i32 next(this) { return (this.uniform() * (PIECE_COUNT as f64)).floor() as~ i32; }
+}
+
+/** What a player makes of a list of boards: one value each, the larger the better. */
+export struct Evaluator {
+  fn<f32[](Board[])> values;
+}
+
+/** How a game went. */
+export struct GameResult {
+  /** The game's score: what the lines it cleared earned. */
+  i32 score;
+  /** How many boards the game passed through, the first included — the original's `positions.length`. */
+  i32 positions;
+  i32 lines;
+  i32 tetrises;
+  /** Whether it ended before its lines were all cleared: a stack too high, or a piece with nowhere to go. */
+  bool toppedOut;
+
+  /**
+   * The number turbostack's `evaluateModel` reports: the score plus one for every board, a bonus it added so that a
+   * player with no idea how to clear lines still had something to learn from.
+   */
+  i32 turbostackScore(const this) { return this.score + this.positions; }
+}
+
+/** The index of the largest value — the first, on a tie, as the original's `indexOf(Math.max(...))` gives. */
+export i32 argmax(f32[] v) {
+  i32 best = 0;
+  for (i32 i = 1; i < v.len(); i++) { if (v[i] > v[best]) { best = i; } }
+  return best;
+}
+
+/**
+ * A game played greedily: each piece put wherever `e` values most. The original's `generateGameBoards` at temperature
+ * 0, step for step — the same checks in the same order, so a game ends where it would have.
+ */
+export GameResult play(Board start, Pieces pieces, Evaluator e) {
+  Board board = start;
+  i32 positions = 0;
+  while (true) {
+    positions++;
+    if (board.finished || board.maxHeight() > 15) { break; }
+    if (positions == 2500) { trap; }
+    Board[] choices = board.choices(pieces.next());
+    if (choices.len() == 0) { break; }
+    board = choices[argmax(e.values(choices))];
+  }
+  return GameResult(board.score, positions, board.linesCleared, board.tetrises, board.linesCleared < board.linesMax);
+}
+
+/** The games of `seeds`, each a fresh 130-line game. */
+export GameResult[] playAll(i32[] seeds, Evaluator e, i32 linesMax) {
+  GameResult[] out = GameResult[].filled(seeds.len(), GameResult(0, 0, 0, 0, false));
+  for (i32 i = 0; i < seeds.len(); i++) { out[i] = play(Board.empty(linesMax), Pieces.seeded(seeds[i]), e); }
+  return out;
+}

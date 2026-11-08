@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "tensor": { "git": "https://git.voltrevo.com/wac-tensor.git", "ref": "0ad2a464205f9e6398a8199956259efdcff9d899", "commit": "0ad2a464205f9e6398a8199956259efdcff9d899" }
+  }
+}

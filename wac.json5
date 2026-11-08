@@ -1,0 +1,8 @@
+{
+  // What another project gets from `import { Board, Game } from "turbostack"`.
+  exports: './src/lib.wac',
+  imports: {
+    // Tensors, layers, gradients and checkpoints.
+    tensor: { git: 'https://git.voltrevo.com/wac-tensor.git', ref: '0ad2a464205f9e6398a8199956259efdcff9d899' },
+  },
+}

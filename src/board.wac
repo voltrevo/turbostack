@@ -1,0 +1,300 @@
+// The game: a 20×10 board, the seven pieces, where each can be put, and what that scores.
+//
+// **These are turbostack's rules, exactly**, because the number to beat was measured under them and a different
+// game would make the comparison meaningless. `turbostack-compare` checks it: for thousands of positions and every
+// piece, the placements found here are the original's, in the original's order — which matters, since the first of
+// equally valued placements is the one a greedy player takes.
+//
+// - A piece may go wherever it can be dropped straight down to rest, or where one rotation either way, or one column's
+//   shift, from its resting place can be (`canFit`): a simple model of a tuck or a spin, not NES Tetris's movement.
+// - Clearing 1, 2, 3 or 4 lines scores 40, 100, 300 or 1200 — level 0's scoring, at every level.
+// - The game ends when `linesMax` lines have been cleared, when a placement leaves any column's top in the five rows
+//   nobody may build into (rows 0 to 4, so the stack may be 15 high), or when a piece has nowhere to go.
+//
+// Row 0 is the top and row 19 the bottom, as in the original. A column is its 20 cells as bits — row i at bit 19 - i —
+// and a row its 10 cells as bits — column j at bit 9 - j — the original's two views of one board, kept in step.
+
+import { Vec } from "core";
+
+export static i32 PIECE_I = 0;
+export static i32 PIECE_O = 1;
+export static i32 PIECE_J = 2;
+export static i32 PIECE_L = 3;
+export static i32 PIECE_S = 4;
+export static i32 PIECE_Z = 5;
+export static i32 PIECE_T = 6;
+export static i32 PIECE_COUNT = 7;
+
+/** The letters, by piece number, for showing a game. */
+export string pieceName(i32 p) { return "IOJLSZT".slice(p, p + 1); }
+
+/**
+ * Each piece's four rotations as 4×4 grids of bits, the top-left cell at bit 15 — the original's tables, duplicates
+ * and all: the I, S and Z list their two rotations twice and the O its one four times, and the order of the choices
+ * depends on it.
+ */
+static i32[] GRIDS = [
+  0x00F0, 0x2222, 0x00F0, 0x2222,
+  0x0660, 0x0660, 0x0660, 0x0660,
+  0x0E20, 0x44C0, 0x8E00, 0x6440,
+  0x0E80, 0xC440, 0x2E00, 0x4460,
+  0x06C0, 0x4620, 0x06C0, 0x4620,
+  0x0C60, 0x2640, 0x0C60, 0x2640,
+  0x0E40, 0x4C40, 0x4E00, 0x4640,
+];
+
+/** Scores for clearing 0 to 4 lines at once. */
+static i32[] LINE_SCORES = [0, 40, 100, 300, 1200];
+
+/** The rows nobody may build into: a column whose top is above this ends the game. */
+export static i32 MIN_TOP = 5;
+
+/** The bit length of `v`: a column's height. */
+i32 bitLength(i32 v) {
+  i32 n = 0;
+  i32 x = v;
+  while (x != 0) {
+    n++;
+    x = x >>> 1;
+  }
+  return n;
+}
+
+/** Where a piece is: its grid and the board position of the grid's top-left cell. */
+export struct Placement {
+  i32 grid;
+  i32 row;
+  i32 col;
+}
+
+export struct Board {
+  /** Column j's cells, row i at bit 19 - i. */
+  i32[] cols;
+  /** Row i's cells, column j at bit 9 - j. */
+  i32[] rows;
+  i32 linesCleared;
+  i32 linesMax;
+  bool finished;
+  i32 score;
+  i32 tetrises;
+
+  /** An empty board for a game of `linesMax` lines. */
+  Board empty(i32 linesMax) {
+    return Board(i32[].filled(10, 0), i32[].filled(20, 0), 0, linesMax, false, 0, 0);
+  }
+
+  Board clone(this) {
+    i32[] c = i32[].filled(10, 0);
+    i32[] r = i32[].filled(20, 0);
+    for (i32 j = 0; j < 10; j++) { c[j] = this.cols[j]; }
+    for (i32 i = 0; i < 20; i++) { r[i] = this.rows[i]; }
+    return Board(c, r, this.linesCleared, this.linesMax, this.finished, this.score, this.tetrises);
+  }
+
+  bool get(this, i32 i, i32 j) { return (this.rows[i] & (1 << (9 - j))) != 0; }
+
+  void flip(this, i32 i, i32 j) {
+    this.rows[i] = this.rows[i] ^ (1 << (9 - j));
+    this.cols[j] = this.cols[j] ^ (1 << (19 - i));
+  }
+
+  i32 height(this, i32 j) { return bitLength(this.cols[j]); }
+
+  i32 maxHeight(this) {
+    i32 h = 0;
+    for (i32 j = 0; j < 10; j++) {
+      i32 hj = this.height(j);
+      if (hj > h) { h = hj; }
+    }
+    return h;
+  }
+
+  i32 linesRemaining(this) {
+    i32 r = this.linesMax - this.linesCleared;
+    return r > 0 ? r : 0;
+  }
+
+  /** Whether cell (i, j) is a wall, the floor, or filled: the sides and the bottom are solid, above the top is not. */
+  bool solid(this, i32 i, i32 j) {
+    if (j < 0 || j >= 10 || i >= 20) { return true; }
+    if (i < 0) { return false; }
+    return this.get(i, j);
+  }
+
+  bool overlaps(this, i32 grid, i32 row, i32 col) {
+    for (i32 k = 0; k < 16; k++) {
+      if ((grid & (1 << (15 - k))) != 0 && this.solid(row + k / 4, col + k % 4)) { return true; }
+    }
+    return false;
+  }
+
+  /** Whether every cell of the piece is above its column's stack: where a piece dropped straight down can pass. */
+  bool clearAbove(this, i32 grid, i32 row, i32 col) {
+    for (i32 k = 0; k < 16; k++) {
+      if ((grid & (1 << (15 - k))) == 0) { continue; }
+      i32 i = row + k / 4;
+      i32 j = col + k % 4;
+      if (i < 0) { continue; }
+      if (i > 20) { return false; }
+      if (20 - i <= this.height(j)) { return false; }
+    }
+    return true;
+  }
+
+  /** The original's `canFitPiece`: free here, and reachable straight down, or after one rotation or one shift. */
+  bool canFit(this, i32 piece, i32 grid, i32 row, i32 col) {
+    if (this.overlaps(grid, row, col)) { return false; }
+    if (this.clearAbove(grid, row, col)) { return true; }
+    i32 idx = gridIndex(piece, grid);
+    i32[] turned = [GRIDS[piece * 4 + (idx + 1) % 4], GRIDS[piece * 4 + (idx + 3) % 4]];
+    for (i32 g in turned) {
+      if (!this.overlaps(g, row, col) && this.clearAbove(g, row, col)) { return true; }
+    }
+    i32[] shifts = [-1, 1];
+    for (i32 s in shifts) {
+      if (!this.overlaps(grid, row, col + s) && this.clearAbove(grid, row, col + s)) { return true; }
+    }
+    return false;
+  }
+
+  /** Every empty cell a piece could rest on, column by column: the one above the stack, then those under overhangs. */
+  i32[] restPositions(this) {
+    Vec<i32> out = Vec.create();
+    for (i32 j = 0; j < 10; j++) {
+      i32 v = this.cols[j];
+      i32 h = bitLength(v);
+      if (h != 20) {
+        out.push(19 - h);
+        out.push(j);
+      }
+      // A column solid from the floor up has nothing under its top to rest in.
+      if (v == (1 << h) - 1) { continue; }
+      for (i32 i = 21 - h; i < 20; i++) {
+        bool empty = (v & (1 << (19 - i))) == 0;
+        bool floor = i == 19 || (v & (1 << (18 - i))) != 0;
+        if (empty && floor) {
+          out.push(i);
+          out.push(j);
+        }
+      }
+    }
+    return out.toArray();
+  }
+
+  /**
+   * The placements of `piece`, in the original's order: rotation by rotation, each of the piece's cells put on each
+   * rest position in turn, the first time a placement is found deciding where it comes. Duplicates are found by the
+   * original's key — `(piece · 2^16 + grid) · 200 + 10 · row + col` — and a later one with the same key replaces the
+   * earlier in its place, as setting a JavaScript `Map` entry does.
+   */
+  Placement[] placements(this, i32 piece) {
+    i32[] rest = this.restPositions();
+    Vec<i64> keys = Vec.create();
+    Vec<Placement> found = Vec.create();
+    for (i32 r = 0; r < 4; r++) {
+      i32 grid = GRIDS[piece * 4 + r];
+      for (i32 k = 0; k < 16; k++) {
+        if ((grid & (1 << (15 - k))) == 0) { continue; }
+        i32 ci = k / 4;
+        i32 cj = k % 4;
+        for (i32 p = 0; p < rest.len(); p += 2) {
+          i32 row = rest[p] - ci;
+          i32 col = rest[p + 1] - cj;
+          if (!this.canFit(piece, grid, row, col)) { continue; }
+          i64 key = (((piece as i64) * (65536 as i64) + (grid as i64)) * (200 as i64)) + ((10 * row + col) as i64);
+          i32 at = -1;
+          for (i32 q = 0; q < keys.len(); q++) { if (keys.get(q) == key) { at = q; } }
+          if (at >= 0) {
+            found.set(at, Placement(grid, row, col));
+          } else {
+            keys.push(key);
+            found.push(Placement(grid, row, col));
+          }
+        }
+      }
+    }
+    return found.toArray();
+  }
+
+  /** The board after `p`: the piece in, full rows cleared and scored, and the game over if it has ended. */
+  Board after(this, Placement p) {
+    Board b = this.clone();
+    for (i32 k = 0; k < 16; k++) {
+      if ((p.grid & (1 << (15 - k))) == 0) { continue; }
+      i32 i = p.row + k / 4;
+      if (i < 0) { continue; }
+      b.flip(i, p.col + k % 4);
+    }
+    b.clearLines();
+    for (i32 j = 0; j < 10; j++) {
+      if (20 - b.height(j) < MIN_TOP) { b.finished = true; }
+    }
+    return b;
+  }
+
+  /** Every board `piece` can make from this one, in the original's order. */
+  Board[] choices(this, i32 piece) {
+    Placement[] ps = this.placements(piece);
+    Board[] out = Board[].filled(ps.len(), this.clone());
+    for (i32 k = 0; k < ps.len(); k++) { out[k] = this.after(ps[k]); }
+    return out;
+  }
+
+  void clearLines(this) {
+    i32 n = 0;
+    for (i32 i = 0; i < 20; i++) {
+      if (this.rows[i] == 0x3FF) {
+        this.removeRow(i);
+        n++;
+      }
+    }
+    this.score += LINE_SCORES[n];
+    if (n == 4) { this.tetrises++; }
+    this.linesCleared += n;
+    if (this.linesCleared >= this.linesMax) { this.finished = true; }
+  }
+
+  void removeRow(this, i32 i) {
+    for (i32 r = i; r >= 1; r--) { this.rows[r] = this.rows[r - 1]; }
+    this.rows[0] = 0;
+    i32 keep = (1 << (19 - i)) - 1;
+    for (i32 j = 0; j < 10; j++) {
+      i32 v = this.cols[j];
+      this.cols[j] = (~keep & (v >> 1)) | (keep & v);
+    }
+  }
+
+  /** The cells as 200 characters, `1` filled and `0` empty, row by row from the top: the original's compact form. */
+  string compact(this) {
+    u8[] b = u8[].filled(200, 48 as u8);
+    for (i32 i = 0; i < 20; i++) {
+      for (i32 j = 0; j < 10; j++) { if (this.get(i, j)) { b[i * 10 + j] = 49 as u8; } }
+    }
+    return string.fromBytes(b);
+  }
+
+  /** A board from its compact form, for a game of `linesMax` lines. */
+  Board fromCompact(string s, i32 linesMax) {
+    Board b = Board.empty(linesMax);
+    u8[] c = s.toBytes();
+    for (i32 x = 0; x < c.len() && x < 200; x++) { if (c[x] == 49) { b.flip(x / 10, x % 10); } }
+    return b;
+  }
+
+  /** The board as text, for a person. */
+  string show(this) {
+    string s = "";
+    for (i32 i = 0; i < 20; i++) {
+      s += i < MIN_TOP ? " :" : " |";
+      for (i32 j = 0; j < 10; j++) { s += this.get(i, j) ? "[]" : "  "; }
+      s += "|\n";
+    }
+    return s + " +--------------------+\n lines \{this.linesCleared}/\{this.linesMax}, score \{this.score}, tetrises \{this.tetrises}\n";
+  }
+}
+
+/** The index of `grid` among `piece`'s rotations — the first, as the original's `findGridIndex` finds it. */
+i32 gridIndex(i32 piece, i32 grid) {
+  for (i32 r = 0; r < 4; r++) { if (GRIDS[piece * 4 + r] == grid) { return r; } }
+  trap;
+}

@@ -1,0 +1,95 @@
+// The rules, case by case, and the piece sequence against JavaScript's.
+
+import { Check } from "./check.wac";
+import { Board, PIECE_I, PIECE_O, PIECE_T, Placement } from "../src/board.wac";
+import { Evaluator, GameResult, Pieces, play } from "../src/game.wac";
+
+export string test_pieces_are_mulberry32_as_javascript_computes_it() {
+  Check t = Check.create();
+  Pieces p = Pieces.seeded(1);
+  f64[] want = [0.6270739405881613, 0.002735721180215478, 0.5274470399599522, 0.9810509674716741, 0.9683778982143849];
+  for (f64 w in want) {
+    f64 got = p.uniform();
+    t.ok(got == w, "uniform: \{got}, want \{w}");
+  }
+  Pieces q = Pieces.seeded(42);
+  i32[] seq = [4, 3, 5, 4, 1, 3, 1, 4, 6, 3, 1, 6, 5, 2, 1, 3, 4, 4, 0, 3];
+  for (i32 s in seq) { t.ok(q.next() == s, "piece sequence of seed 42"); }
+  return t.report();
+}
+
+export string test_an_empty_board_has_every_drop() {
+  Check t = Check.create();
+  Board b = Board.empty(130);
+  // I: seven places lying down, ten standing up. O: nine. T: four rotations, 8 + 9 + 8 + 9.
+  t.ok(b.choices(PIECE_I).len() == 17, "I: \{b.choices(PIECE_I).len()}");
+  t.ok(b.choices(PIECE_O).len() == 9, "O: \{b.choices(PIECE_O).len()}");
+  t.ok(b.choices(PIECE_T).len() == 34, "T: \{b.choices(PIECE_T).len()}");
+  // Every one of them is on the floor.
+  for (Board c in b.choices(PIECE_I)) { t.ok((c.rows[19] != 0), "a choice that is not on the floor"); }
+  return t.report();
+}
+
+export string test_lines_clear_and_score() {
+  Check t = Check.create();
+  // Rows 16 to 19 full but for column 9: a standing I there is a tetris.
+  string s = "";
+  for (i32 i = 0; i < 200; i++) { s += i >= 160 && i % 10 != 9 ? "1" : "0"; }
+  Board b = Board.fromCompact(s, 130);
+  Board best = b;
+  for (Board c in b.choices(PIECE_I)) { if (c.score > best.score) { best = c; } }
+  t.ok(best.score == 1200 && best.tetrises == 1 && best.linesCleared == 4, "a tetris scores 1200: \{best.score}");
+  t.ok(best.maxHeight() == 0, "and empties the board");
+  // The same with three lines to go ends the game.
+  Board short = Board.fromCompact(s, 3);
+  bool ended = false;
+  for (Board c in short.choices(PIECE_I)) { if (c.linesCleared == 4) { ended = c.finished; } }
+  t.ok(ended, "clearing past the last line ends the game");
+  return t.report();
+}
+
+export string test_building_into_the_top_five_rows_ends_the_game() {
+  Check t = Check.create();
+  // Column 0 is 14 high: a standing I on it reaches 18, past the 15 allowed.
+  string s = "";
+  for (i32 i = 0; i < 200; i++) { s += i >= 60 && i % 10 == 0 ? "1" : "0"; }
+  Board b = Board.fromCompact(s, 130);
+  t.ok(b.maxHeight() == 14, "set up 14 high: \{b.maxHeight()}");
+  bool sawEnd = false;
+  bool sawLive = false;
+  for (Board c in b.choices(PIECE_I)) {
+    if (c.height(0) > 15) { sawEnd = sawEnd || c.finished; }
+    if (c.maxHeight() <= 15) { sawLive = sawLive || !c.finished; }
+  }
+  t.ok(sawEnd, "a placement above 15 ends the game");
+  t.ok(sawLive, "one below it does not");
+  return t.report();
+}
+
+export string test_a_piece_can_tuck_under_an_overhang() {
+  Check t = Check.create();
+  // A one-cell ledge at (17, 0) over an empty column 0. Dropped straight down, an O cannot get under it; but the same
+  // O one column to the right drops clear, and the original lets a piece shift one column at the end: a tuck.
+  string s = "";
+  for (i32 i = 0; i < 200; i++) { s += i == 170 ? "1" : "0"; }
+  Board b = Board.fromCompact(s, 130);
+  bool tucked = false;
+  for (Board c in b.choices(PIECE_O)) { if (c.get(18, 0) && c.get(19, 1) && c.get(17, 0)) { tucked = true; } }
+  t.ok(tucked, "an O tucks under the ledge from one column over");
+  return t.report();
+}
+
+export string test_a_game_ends_and_reports_turbostacks_number() {
+  Check t = Check.create();
+  // A player that values only the lines cleared, and otherwise keeps the stack low.
+  Evaluator e = Evaluator((Board[] bs) => {
+    f32[] v = f32[].filled(bs.len(), 0.0);
+    for (i32 i = 0; i < bs.len(); i++) { v[i] = ((bs[i].score * 100 - bs[i].maxHeight()) as~ f32); }
+    return v;
+  });
+  GameResult r = play(Board.empty(20), Pieces.seeded(3), e);
+  t.ok(r.positions > 1, "pieces were placed");
+  t.ok(r.turbostackScore() == r.score + r.positions, "turbostack's number is the score plus the positions");
+  t.ok(r.lines == 20 || r.toppedOut, "it ended by its lines or by topping out");
+  return t.report();
+}

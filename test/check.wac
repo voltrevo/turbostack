@@ -1,0 +1,7 @@
+// Collecting failures, so a test reports all of what is wrong at once.
+export struct Check {
+  string failures;
+  Check create() { return Check(""); }
+  void ok(this, bool cond, string what) { if (!cond) { this.failures += what + "; "; } }
+  string report(this) { return this.failures; }
+}

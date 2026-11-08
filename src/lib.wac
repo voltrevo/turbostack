@@ -1,0 +1,11 @@
+// wac-turbostack as a package: `import { Board, play } from "turbostack"`.
+
+export { Board } from "./board.wac";
+export { Placement } from "./board.wac";
+export { pieceName } from "./board.wac";
+export { Pieces } from "./game.wac";
+export { Evaluator } from "./game.wac";
+export { GameResult } from "./game.wac";
+export { play } from "./game.wac";
+export { playAll } from "./game.wac";
+export { argmax } from "./game.wac";
