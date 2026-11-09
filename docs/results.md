@@ -64,3 +64,20 @@ the network back:
 | 56 | 24,161 ± 538 |
 
 turbostack's model scores 23,318 ± 588 on these games.
+
+## What did not help (yet)
+
+After v6 the score stopped moving. Each of these started from v6 iteration 48 (24,711 ± 416 over games 1001–1100) and
+was judged on the same games:
+
+| Tried | Best check, games 1001–1100 | |
+|---|---|---|
+| v7: a third of the learning rate, 8,000 boards an iteration | 24,553 ± 497 | flat for 16 iterations |
+| Mean of eight late checkpoints (`tools/average.wac`) | 24,773 ± 412 | +198 ± 538 against one checkpoint |
+| Fitting fresh networks to the stored targets | 17,111 ± 757 | far behind: what the network knows is not all in the targets |
+| v8: the network widened to twice the width (`tools/widen.wac`, `large`), which plays identically at first | 24,688 ± 588 | flat for 32 iterations, at about twice the cost |
+| v9: self-play games played with lookahead (3), λ = 0.7, so the network learns the value of better play than its own | greedy 24,419 → 23,422; with lookahead on games 1–50, 28,618 at iteration 12 then 26,691 at 18 | worse by iteration 18 |
+
+So more capacity and smoother training find nothing more in v6's targets, and the one attempt to teach the network
+the value of searched play made it worse. The next things worth trying: lookahead used for the targets as well as the
+moves, and a richer input (the board alone, without the next piece, is all the network sees).
