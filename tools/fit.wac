@@ -12,7 +12,7 @@ import { Sys } from "std";
 import { Device, Tensor, loadWeights, saveWeightsNow, tensorsOf } from "tensor";
 import { Adam } from "tensor";
 import { Board } from "../src/board.wac";
-import { Examples } from "../src/selfplay.wac";
+import { Examples, NO_TARGET } from "../src/selfplay.wac";
 import { parseInt, splitOn } from "../src/text.wac";
 import { SCALE, ValueConfig, ValueNet } from "../src/value.wac";
 
@@ -22,10 +22,23 @@ Board[] slice(Examples ex, i32[] order, i32 from, i32 to) {
   return out;
 }
 
-f32[] sliceTargets(Examples ex, i32[] order, i32 from, i32 to) {
-  f32[] out = f32[].filled(to - from, 0.0);
-  for (i32 i = from; i < to; i++) { out[i - from] = ((ex.targets.get(order[i]) as f64) / SCALE) as~ f32; }
-  return out;
+/**
+ * The targets of examples `from` to `to`, `[n × heads]` in the network's units, and beside them which there are: a
+ * board with no lookahead target leaves its second head untrained, not trained towards anything.
+ */
+f32[][] sliceTargets(Examples ex, i32[] order, i32 from, i32 to, i32 heads) {
+  f32[] y = f32[].filled((to - from) * heads, 0.0);
+  f32[] mask = f32[].filled((to - from) * heads, 0.0);
+  for (i32 i = from; i < to; i++) {
+    i32 o = (i - from) * heads;
+    y[o] = ((ex.targets.get(order[i]) as f64) / SCALE) as~ f32;
+    mask[o] = 1.0;
+    if (heads > 1 && ex.looks.get(order[i]) != NO_TARGET) {
+      y[o + 1] = ((ex.looks.get(order[i]) as f64) / SCALE) as~ f32;
+      mask[o + 1] = 1.0;
+    }
+  }
+  return [y, mask];
 }
 
 export async i32 main(Sys sys) {
@@ -54,6 +67,7 @@ export async i32 main(Sys sys) {
   f64 rate = er.len() > 1 ? (parseInt(er[1]) as f64) / 10000.0 : 0.001;
   if (er.len() > 2) { rate = rate / (parseInt(er[2]) as f64); }
   Adam opt = Adam.create(rate);
+  i32 heads = net.config.heads;
   i32 batch = 256;
   f64 last = 0.0;
   for (i32 e = 0; e < epochs; e++) {
@@ -61,26 +75,39 @@ export async i32 main(Sys sys) {
     i32 steps = 0;
     for (i32 at = held; at + batch <= n; at += batch) {
       Board[] bs = slice(ex, order, at, at + batch);
-      Tensor y = d.vector(sliceTargets(ex, order, at, at + batch));
-      Tensor loss = opt.minimize(() => net.forward(d, bs).squaredDifference(y).mean([], false), net.params);
+      f32[][] ym = sliceTargets(ex, order, at, at + batch, heads);
+      f64 count = 0.0;
+      for (f32 m in ym[1]) { count += m as f64; }
+      Tensor y = d.tensor(ym[0], [batch, heads]);
+      Tensor mask = d.tensor(ym[1], [batch, heads]);
+      Tensor loss = opt.minimize(() => net.forward(d, bs).squaredDifference(y).mul(mask).sum([], false).div(count), net.params);
       total += loss.item() as f64;
       steps++;
       loss.dispose();
       y.dispose();
+      mask.dispose();
     }
     last = (total / (steps as f64)).sqrt() * SCALE;
   }
   // The held-out error, by the network as it plays: a finished board counts as nothing whatever it says.
   f64 se = 0.0;
+  f64 lookSe = 0.0;
+  i32 looks = 0;
   for (i32 at = 0; at < held; at += batch) {
     i32 to = at + batch < held ? at + batch : held;
-    f32[] v = net.values(d, slice(ex, order, at, to));
+    f32[] v = net.allValues(d, slice(ex, order, at, to));
     for (i32 i = at; i < to; i++) {
-      f64 diff = (v[i - at] as f64) - (ex.targets.get(order[i]) as f64);
+      f64 diff = (v[(i - at) * heads] as f64) - (ex.targets.get(order[i]) as f64);
       se += diff * diff;
+      if (heads > 1 && ex.looks.get(order[i]) != NO_TARGET) {
+        f64 ld = (v[(i - at) * heads + 1] as f64) - (ex.looks.get(order[i]) as f64);
+        lookSe += ld * ld;
+        looks++;
+      }
     }
   }
-  sys.log("fit: \{n} boards, training error \{last.round()}, held-out error \{(se / (held as f64)).sqrt().round()}");
+  string lookText = looks > 0 ? ", lookahead held-out error \{(lookSe / (looks as f64)).sqrt().round()} (\{looks})" : "";
+  sys.log("fit: \{n} boards, training error \{last.round()}, held-out error \{(se / (held as f64)).sqrt().round()}\{lookText}");
   auto w = await sys.writeFile(a[2], saveWeightsNow(net.params));
   if (w.isErr()) { sys.log("fit: " + w.err()!); return 1; }
   return 0;

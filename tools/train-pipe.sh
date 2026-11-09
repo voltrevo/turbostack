@@ -3,8 +3,10 @@
 # network before it — one iteration stale, as asynchronous self-play usually is — so the fit, which wac runs on one
 # thread, no longer leaves three cores idle. An iteration takes as long as the slower of the two, not their sum.
 #
-#     EPOCHS=1:3 EVAL_EVERY=4 LOOK=0 sh tools/train-pipe.sh <run> <config> <iterations> <boards-per-iteration> <epsilon‰> \
+#     EPOCHS=1:3 EVAL_EVERY=4 EVAL_LOOK= LOOK=0 sh tools/train-pipe.sh <run> <config> <iterations> <boards-per-iteration> <epsilon‰> \
 #         <replay-iterations> <start-iteration> <λ‰ (negative for TD)> <bonus> <bonus-fades-by>
+#
+# For the dual network (config `dual`) the λ‰ argument is the share of boards, in thousandths, given a lookahead target.
 #
 # Same files as train.sh — runs/<run>/model-<i>.weights, data-<i>-<w>.bin, log.txt — so either script continues the other.
 set -eu
@@ -52,8 +54,9 @@ while [ "$i" -lt "$iters" ]; do
   if [ $(((i + 1) % ${EVAL_EVERY:-4})) -eq 0 ]; then
     # In the background: the next iteration starts at once, and the check reports when it is done.
     m="$dir/model-$((i + 1)).weights"; k=$((i + 1))
-    ( score=$(wac run --allow-read tools/evaluate.wac "$config" "$m" 1001 ${EVAL_TO:-1020} | tail -1)
-      echo "check of iteration $k: games 1001-${EVAL_TO:-1020}: $score" | tee -a "$log" ) &
+    # EVAL_LOOK plays the check with that much lookahead; each game's line is kept in check-<k>.txt.
+    ( wac run --allow-read tools/evaluate.wac "$config" "$m" 1001 ${EVAL_TO:-1020} ${EVAL_LOOK:-} > "$dir/check-$k.txt"
+      echo "check of iteration $k: games 1001-${EVAL_TO:-1020}: $(tail -1 "$dir/check-$k.txt")" | tee -a "$log" ) &
   fi
   echo "$line" | tee -a "$log"
   i=$((i + 1))

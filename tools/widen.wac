@@ -1,5 +1,7 @@
 // A wider network that plays exactly as a narrower one: its weights copied in, the new units fed at random but read
 // by nothing (their outgoing weights zero), so training can put them to use from where the narrow network left off.
+// The same for more heads: every head of the new network starts as a copy of the old one's first (`standard` to
+// `dual`).
 //
 //     wac run --allow-read --allow-write tools/widen.wac <from-config> <from.weights> <to-config> <out.weights>
 
@@ -12,9 +14,11 @@ import { ValueConfig, ValueNet } from "../src/value.wac";
 static i32 SAME = 0;
 static i32 UNITS = 1;
 static i32 JOINED = 2;
+static i32 HEAD = 3;
 
 i32 oldIndex(i32 kind, i32 i, i32 oldSize, ValueConfig o, ValueConfig n) {
   if (kind == SAME) { return i; }
+  if (kind == HEAD) { return 0; }
   if (kind == UNITS) { return i < oldSize ? i : -1; }
   if (i < 18 * n.rows) {
     i32 c = i % n.rows;
@@ -45,7 +49,7 @@ export async i32 main(Sys sys) {
     [SAME, SAME, UNITS, UNITS], [UNITS],
     [JOINED, UNITS], [UNITS],
     [UNITS, UNITS], [UNITS],
-    [UNITS, SAME], [SAME],
+    [UNITS, HEAD], [HEAD],
   ];
   i32[] inputAxis = [2, -1, 2, -1, 2, -1, 0, -1, 0, -1, 0, -1];
   for (i32 k = 0; k < to.params.len(); k++) {
@@ -76,7 +80,7 @@ export async i32 main(Sys sys) {
     }
     // The output layer reads only the old units: everything new there is zero.
     if (k == 10) {
-      for (i32 flat = 0; flat < nv.len(); flat++) { if (flat >= os[0]) { nv[flat] = 0.0; } }
+      for (i32 flat = 0; flat < nv.len(); flat++) { if (flat / ns[1] >= os[0]) { nv[flat] = 0.0; } }
     }
     to.params[k].assign(d.tensor(nv, ns));
   }

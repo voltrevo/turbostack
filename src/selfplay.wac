@@ -20,26 +20,44 @@ import { Pieces, argmax } from "./game.wac";
 import { lookahead } from "./lookahead.wac";
 import { ValueNet } from "./value.wac";
 
-/** Boards and their targets, in points. */
+/** Not a target: a board with no lookahead target has this as one. */
+export static f32 NO_TARGET = -1.0e30;
+
+/** The start of an encoding with lookahead targets: as a column it would be over the twenty rows a column has. */
+static u32 WITH_LOOKS = 0x4b4f4f4c as u32;
+
+/** Boards and their targets, in points: the greedy value, and — for the `dual` network — the lookahead value. */
 export struct Examples {
   Vec<Board> boards;
   Vec<f32> targets;
+  /** Each board's lookahead target, or `NO_TARGET` for none. */
+  Vec<f32> looks;
 
-  Examples create() { return Examples(Vec.create(), Vec.create()); }
+  Examples create() { return Examples(Vec.create(), Vec.create(), Vec.create()); }
   i32 len(const this) { return this.boards.len(); }
 
-  void add(this, Board b, f32 target) {
+  void add(this, Board b, f32 target) { this.addBoth(b, target, NO_TARGET); }
+
+  void addBoth(this, Board b, f32 target, f32 look) {
     this.boards.push(b);
     this.targets.push(target);
+    this.looks.push(look);
   }
 
   void extend(this, Examples other) {
-    for (i32 i = 0; i < other.len(); i++) { this.add(other.boards.get(i), other.targets.get(i)); }
+    for (i32 i = 0; i < other.len(); i++) { this.addBoth(other.boards.get(i), other.targets.get(i), other.looks.get(i)); }
   }
 
-  /** As bytes: per example, the ten columns, lines cleared, lines in the game, score and tetrises as `i32`, then the target as `f32`. */
+  /**
+   * As bytes: per example, the ten columns, lines cleared, lines in the game, score and tetrises as `i32`, then the
+   * target as `f32` — and, when any board has a lookahead target, a mark at the start and each lookahead target after
+   * its target.
+   */
   u8[] encode(this) {
     Buf b = Buf.create();
+    bool looks = false;
+    for (i32 i = 0; i < this.len(); i++) { if (this.looks.get(i) != NO_TARGET) { looks = true; } }
+    if (looks) { b.pushU32(WITH_LOOKS); }
     for (i32 i = 0; i < this.len(); i++) {
       Board x = this.boards.get(i);
       for (i32 j = 0; j < 10; j++) { b.pushU32(x.cols[j] as@ u32); }
@@ -48,6 +66,7 @@ export struct Examples {
       b.pushU32(x.score as@ u32);
       b.pushU32(x.tetrises as@ u32);
       b.pushU32(f32.toBits(this.targets.get(i)));
+      if (looks) { b.pushU32(f32.toBits(this.looks.get(i))); }
     }
     return b.bytes();
   }
@@ -55,9 +74,14 @@ export struct Examples {
   Examples decode(u8[] bytes) {
     Examples out = Examples.create();
     i32 at = 0;
-    while (at + 60 <= bytes.len()) {
-      i32[] v = i32[].filled(15, 0);
-      for (i32 k = 0; k < 15; k++) {
+    i32 fields = 15;
+    if (bytes.len() >= 4 && word(bytes, 0) == (WITH_LOOKS as@ i32)) {
+      fields = 16;
+      at = 4;
+    }
+    while (at + 4 * fields <= bytes.len()) {
+      i32[] v = i32[].filled(fields, 0);
+      for (i32 k = 0; k < fields; k++) {
         i32 o = at + 4 * k;
         v[k] = (bytes[o] as i32) | ((bytes[o + 1] as i32) << 8) | ((bytes[o + 2] as i32) << 16) | ((bytes[o + 3] as i32) << 24);
       }
@@ -68,11 +92,15 @@ export struct Examples {
       b.linesCleared = v[10];
       b.score = v[12];
       b.tetrises = v[13];
-      out.add(b, f32.fromBits(v[14] as@ u32));
-      at += 60;
+      out.addBoth(b, f32.fromBits(v[14] as@ u32), fields == 16 ? f32.fromBits(v[15] as@ u32) : NO_TARGET);
+      at += 4 * fields;
     }
     return out;
   }
+}
+
+i32 word(u8[] bytes, i32 o) {
+  return (bytes[o] as i32) | ((bytes[o + 1] as i32) << 8) | ((bytes[o + 2] as i32) << 16) | ((bytes[o + 3] as i32) << 24);
 }
 
 /**
@@ -340,8 +368,88 @@ export f32[] playerValues(Device d, ValueNet net, Board from, Board[] choices) {
 }
 
 /** Each board's score plus the network's value of it: the final score it expects. */
-export f32[] finalScores(Device d, ValueNet net, Board[] boards) {
-  f32[] v = net.values(d, boards);
+export f32[] finalScores(Device d, ValueNet net, Board[] boards) { return finalScoresOf(d, net, boards, 0); }
+
+/** `finalScores` by one of the network's heads. */
+export f32[] finalScoresOf(Device d, ValueNet net, Board[] boards, i32 head) {
+  f32[] v = net.valuesOf(d, boards, head);
   for (i32 i = 0; i < boards.len(); i++) { v[i] = (((boards[i].score as f64) + (v[i] as f64))) as~ f32; }
   return v;
+}
+
+// ---- The dual network: a second value, for play with lookahead ----
+//
+// Head 0 is the greedy value, learned as before. Head 1 is what a board is worth **if play goes on with lookahead**,
+// and lookahead uses each head for what it is good at: head 0, cheap and learned from many boards, to choose the few
+// placements worth looking at; head 1 to value the boards a piece deeper, which decide the move. Head 1's target is
+// then the same search one level up — exact over two pieces, no playouts — so it learns the value of the very player
+// that uses it, and that player improves as it does.
+
+/**
+ * The dual player's estimate of each of `choices`' final score: ranked by head 0, and the `look` best valued again a
+ * piece deeper by head 1 (`lookahead`); the rest below them.
+ */
+export f32[] dualLook(Device d, ValueNet net, Board[] choices, i32 look) {
+  f32[] v = finalScoresOf(d, net, choices, 0);
+  return lookahead(choices, v, look, (Board[] bs) => finalScoresOf(d, net, bs, 1));
+}
+
+/**
+ * The lookahead target of each of `boards`: the mean over the seven pieces of the points still to come if the dual
+ * player places that piece with `look` candidates — the best of its estimates, less the score so far — and nothing for
+ * a piece with nowhere to go.
+ */
+export f32[] lookTargets(Device d, ValueNet net, Board[] boards, i32 look) {
+  f32[] out = f32[].filled(boards.len(), 0.0);
+  for (i32 k = 0; k < boards.len(); k++) {
+    f64 total = 0.0;
+    for (i32 p = 0; p < PIECE_COUNT; p++) {
+      Board[] cs = boards[k].choices(p);
+      if (cs.len() == 0) { continue; }
+      f32[] v = dualLook(d, net, cs, look);
+      total += (v[argmax(v)] as f64) - (boards[k].score as f64);
+    }
+    out[k] = (total / (PIECE_COUNT as f64)) as~ f32;
+  }
+  return out;
+}
+
+/**
+ * Boards from games the dual player plays (`x.look` candidates; or head 1 greedily, for 0), each with its exact greedy
+ * target for head 0 and — for a `share` of them, the expensive part — its lookahead target for head 1 with
+ * `targetLook` candidates.
+ */
+export Examples examplesDual(Device d, ValueNet net, Pieces rng, i32 want, Exploration x, f64 share, i32 targetLook) {
+  Examples out = Examples.create();
+  while (out.len() < want) {
+    i32 lines = 1 + ((rng.uniform() * 130.0).floor() as~ i32);
+    if (rng.uniform() < 0.3) { lines = 130; }
+    Board b = startingBoard(rng, lines);
+    Vec<Board> seq = Vec.create();
+    while (!b.finished && out.len() + seq.len() < want) {
+      Board[] cs = b.choices(rng.next());
+      if (cs.len() == 0) { break; }
+      i32 pick = 0;
+      if (rng.uniform() < x.epsilon) {
+        pick = (rng.uniform() * (cs.len() as f64)).floor() as~ i32;
+      } else {
+        pick = argmax(x.look > 0 ? dualLook(d, net, cs, x.look) : finalScoresOf(d, net, cs, 1));
+      }
+      b = cs[pick];
+      if (!b.finished) { seq.push(b); }
+    }
+    Board[] boards = seq.toArray();
+    for (i32 at = 0; at < boards.len(); at += 32) {
+      i32 to = at + 32 < boards.len() ? at + 32 : boards.len();
+      Board[] slice = Board[].filled(to - at, boards[0]);
+      for (i32 k = at; k < to; k++) { slice[k - at] = boards[k]; }
+      f32[] t = targets(d, net, slice, 0.0);
+      for (i32 k = 0; k < slice.len(); k++) {
+        f32 look = NO_TARGET;
+        if (rng.uniform() < share) { look = lookTargets(d, net, [slice[k]], targetLook)[0]; }
+        out.addBoth(slice[k], t[k], look);
+      }
+    }
+  }
+  return out;
 }

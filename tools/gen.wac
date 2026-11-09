@@ -7,13 +7,17 @@
 //
 // With `lookahead` k the λ-return games are played with one piece of lookahead over the k best placements.
 //
+// For the `dual` network the arguments after `<out.bin>` are `<lookahead-share‰> <ignored> <lookahead>`: games played with
+// `lookahead` candidates, every board given its greedy target and that share of them a lookahead target as well
+// (`examplesDual`, with 2 candidates).
+//
 // `none` is an untrained network — the start of learning from nothing.
 
 import { Sys } from "std";
 import { Device, loadWeights } from "tensor";
 import { Board } from "../src/board.wac";
 import { Pieces } from "../src/game.wac";
-import { Examples, Exploration, boardsFromPlay, examplesFromPlay, examplesTD, targets } from "../src/selfplay.wac";
+import { Examples, Exploration, boardsFromPlay, examplesDual, examplesFromPlay, examplesTD, targets } from "../src/selfplay.wac";
 import { parseInt } from "../src/text.wac";
 import { ValueConfig, ValueNet } from "../src/value.wac";
 
@@ -28,6 +32,13 @@ export async i32 main(Sys sys) {
     if (r.isErr()) { sys.log("gen: " + r.err()!); return 1; }
   }
   Pieces rng = Pieces.seeded(seed * 7919 + 17);
+  if (net.config.heads > 1) {
+    Examples dx = examplesDual(d, net, rng, parseInt(a[3]), Exploration((parseInt(a[4]) as f64) / 1000.0, a.len() > 8 ? parseInt(a[8]) : 3),
+                               (parseInt(a[6]) as f64) / 1000.0, 2);
+    auto dw = await sys.writeFile(a[5], dx.encode());
+    if (dw.isErr()) { sys.log("gen: " + dw.err()!); return 1; }
+    return 0;
+  }
   // λ given as negative thousandths: TD(λ), bootstrapping from the network rather than the exact expectation.
   if (a.len() > 6 && parseInt(a[6]) < 0) {
     Examples tx = examplesTD(d, net, rng, parseInt(a[3]), Exploration((parseInt(a[4]) as f64) / 1000.0, a.len() > 8 ? parseInt(a[8]) : 0),

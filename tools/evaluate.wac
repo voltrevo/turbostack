@@ -1,10 +1,13 @@
 // Play games with a model and report how it scores — the one number this project is measured by.
 //
-//     wac run --allow-read tools/evaluate.wac legacy|small|standard|large <weights> <from> <to> [lookahead]
+//     wac run --allow-read tools/evaluate.wac legacy|small|standard|large|dual|dual1 <weights> <from> <to> [lookahead]
 //
 // With `lookahead` k, the player — either model — looks one piece further for its k best placements: each is valued as
 // what it scores plus the mean, over the seven pieces that could come next, of the best that piece then allows. A
 // placement that leaves the stack needing one particular piece is then seen to be the gamble it is.
+//
+// `dual` is the network with a second, lookahead value: greedy, it plays by the first; with lookahead, it chooses
+// candidates by the first and values the boards a piece deeper by the second. `dual1` plays by the second throughout.
 //
 // Plays the games of seeds `from` to `to` (mulberry32 piece sequences, 130 lines each, greedy), printing one line a
 // game — `<seed> <score> <positions> <lines> <tetrises>`, as `turbostack-compare`'s `baseline.ts` does — and then the
@@ -17,6 +20,7 @@ import { lookahead } from "../src/lookahead.wac";
 import { Evaluator, GameResult, Pieces, play } from "../src/game.wac";
 import { LegacyScoreModel } from "../src/legacy.wac";
 
+import { finalScoresOf } from "../src/selfplay.wac";
 import { ValueConfig, ValueNet } from "../src/value.wac";
 import { parseInt } from "../src/text.wac";
 
@@ -28,6 +32,8 @@ export async i32 main(Sys sys) {
   // Each model as one thing: an estimate of the game's final score from a board. The old model is one already; the
   // new one adds its value — points still to come — to the score so far, and a finished game comes to its score.
   fn<f32[](Board[])> finalScore;
+  // What lookahead values the boards a piece deeper with: the same, but for the dual network.
+  fn<f32[](Board[])> deeper;
   if (args[0] == "legacy") {
     LegacyScoreModel m = LegacyScoreModel.create(d);
     auto loaded = loadWeights(m.params, weights);
@@ -41,6 +47,7 @@ export async i32 main(Sys sys) {
       v.dispose();
       return out;
     };
+    deeper = finalScore;
   } else {
     ValueNet net = ValueNet.create(d, ValueConfig.named(args[0]));
     auto loaded = loadWeights(net.params, weights);
@@ -48,16 +55,15 @@ export async i32 main(Sys sys) {
       sys.log("cannot load the weights: " + loaded.err()!);
       return 1;
     }
-    finalScore = (Board[] bs) => {
-      f32[] v = net.values(d, bs);
-      for (i32 i = 0; i < bs.len(); i++) { v[i] = (((bs[i].score as f64) + (v[i] as f64))) as~ f32; }
-      return v;
-    };
+    i32 first = args[0] == "dual1" ? 1 : 0;
+    i32 second = net.config.heads > 1 ? 1 : 0;
+    finalScore = (Board[] bs) => finalScoresOf(d, net, bs, first);
+    deeper = (Board[] bs) => finalScoresOf(d, net, bs, second);
   }
   Evaluator e = Evaluator((Board[] bs) => {
     f32[] v = finalScore(bs);
     if (look == 0) { return v; }
-    return lookahead(bs, v, look, finalScore);
+    return lookahead(bs, v, look, deeper);
   });
   i32 from = parseInt(args[2]);
   i32 to = parseInt(args[3]);
