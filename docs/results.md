@@ -81,3 +81,29 @@ was judged on the same games:
 So more capacity and smoother training find nothing more in v6's targets, and the one attempt to teach the network
 the value of searched play made it worse. The next things worth trying: lookahead used for the targets as well as the
 moves, and a richer input (the board alone, without the next piece, is all the network sees).
+
+## A second output: the value of play with lookahead
+
+The `dual` network has two outputs: the greedy value, learned as before, and the value if play goes on with
+lookahead. Lookahead chooses its candidates by the first and values the boards a piece deeper by the second. The
+second output's target is that same search one level up: for each of the seven pieces, the best placement's estimate
+by the dual player, exact over two pieces (`lookTargets`). Run v10 started from v6 copied into both outputs
+(`tools/widen.wac standard … dual`), games played with lookahead, 3,000 boards an iteration with a third given
+lookahead targets (`LOOK=3 EPOCHS=2:1 sh tools/train-pipe.sh v10 dual 200 3000 15 6 0 333 0 1`).
+
+With lookahead (3 candidates), paired game by game:
+
+| | Games | Mean score | Against v6 + lookahead | Against turbostack's model + lookahead |
+|---|---|---|---|---|
+| v10 iteration 24 | 1–200 | 27,246 ± 377 | +643 ± 438 | −85 ± 347 (27,331) |
+| v10 iteration 36 | 1001–1100 | 29,278 | +1,618 ± 576, higher in 63 of 100 | — |
+
+Checks on games 1001–1050 alone ran from +858 to +2,850 against v6 and flattered whichever checkpoint was picked by
+them: iteration 24, +2,596 there, was +643 on games 1–200.
+
+**Playouts instead of the exact target did not help.** v11 continued from v10 iteration 36 with every board's
+lookahead target the mean of 14 playouts of 3 moves, each move greedy by the second output, plus its value at the end
+(`playoutTarget`; `PLAYOUTS="14 3"`). Those agree with the exact target to within 44 points RMS at 40% of the cost,
+but the second output then chooses its own playouts' moves, and its error rose (116 → 237 over iterations 8–11). At
+half the learning rate it held at about 150, and after 16 iterations in all it was 1,034 ± 660 behind v10 iteration
+36 over games 1001–1100. Run v12 continues v10 instead.
