@@ -415,11 +415,61 @@ export f32[] lookTargets(Device d, ValueNet net, Board[] boards, i32 look) {
 }
 
 /**
- * Boards from games the dual player plays (`x.look` candidates; or head 1 greedily, for 0), each with its exact greedy
- * target for head 0 and — for a `share` of them, the expensive part — its lookahead target for head 1 with
- * `targetLook` candidates.
+ * The lookahead target of `b` from playouts: the mean, over `samples` playouts of `depth` moves each, of the points
+ * the playout collects plus head 1's value of the board it ends on — nothing more if the game ends or a piece has
+ * nowhere to go. Each move is the best by `points + head 1's value`: head 1 is the value of play with lookahead, so
+ * playing greedily by it stands in, cheaply, for the lookahead player. Deeper than `lookTargets` and about a quarter
+ * the work, for some sampling noise; the first piece of each playout is taken in turn, `samples / 7` of each, so
+ * only the later pieces are left to chance. Each move of all the playouts is valued in one batch.
  */
-export Examples examplesDual(Device d, ValueNet net, Pieces rng, i32 want, Exploration x, f64 share, i32 targetLook) {
+export f32 playoutTarget(Device d, ValueNet net, Pieces rng, Board b, i32 samples, i32 depth) {
+  Board[] at = Board[].filled(samples, b);
+  bool[] over = bool[].filled(samples, false);
+  f64[] last = f64[].filled(samples, 0.0);
+  for (i32 step = 0; step < depth; step++) {
+    Vec<Board> all = Vec.create();
+    i32[] counts = i32[].filled(samples, 0);
+    for (i32 k = 0; k < samples; k++) {
+      if (over[k]) { continue; }
+      i32 piece = step == 0 ? k % PIECE_COUNT : rng.next();
+      Board[] cs = at[k].choices(piece);
+      counts[k] = cs.len();
+      for (Board c in cs) { all.push(c); }
+      if (cs.len() == 0) {
+        over[k] = true;
+        last[k] = 0.0;
+      }
+    }
+    if (all.len() == 0) { break; }
+    Board[] cs = all.toArray();
+    f32[] v = net.valuesOf(d, cs, 1);
+    i32 o = 0;
+    for (i32 k = 0; k < samples; k++) {
+      i32 n = counts[k];
+      if (n == 0) { continue; }
+      i32 best = o;
+      for (i32 j = o; j < o + n; j++) {
+        if (((cs[j].score as f64) + (v[j] as f64)) > ((cs[best].score as f64) + (v[best] as f64))) { best = j; }
+      }
+      at[k] = cs[best];
+      last[k] = v[best] as f64;
+      if (cs[best].finished) { over[k] = true; }
+      o += n;
+    }
+  }
+  f64 total = 0.0;
+  for (i32 k = 0; k < samples; k++) { total += ((at[k].score - b.score) as f64) + last[k]; }
+  return (total / (samples as f64)) as~ f32;
+}
+
+/**
+ * Boards from games the dual player plays (`x.look` candidates; or head 1 greedily, for 0), each with its exact greedy
+ * target for head 0 and — for a `share` of them, the expensive part — a lookahead target for head 1: with `playouts`
+ * 0, exact over two pieces with `targetLook` candidates (`lookTargets`); otherwise from that many playouts of `depth`
+ * moves (`playoutTarget`).
+ */
+export Examples examplesDual(Device d, ValueNet net, Pieces rng, i32 want, Exploration x, f64 share, i32 targetLook,
+                             i32 playouts, i32 depth) {
   Examples out = Examples.create();
   while (out.len() < want) {
     i32 lines = 1 + ((rng.uniform() * 130.0).floor() as~ i32);
@@ -446,7 +496,9 @@ export Examples examplesDual(Device d, ValueNet net, Pieces rng, i32 want, Explo
       f32[] t = targets(d, net, slice, 0.0);
       for (i32 k = 0; k < slice.len(); k++) {
         f32 look = NO_TARGET;
-        if (rng.uniform() < share) { look = lookTargets(d, net, [slice[k]], targetLook)[0]; }
+        if (rng.uniform() < share) {
+          look = playouts > 0 ? playoutTarget(d, net, rng, slice[k], playouts, depth) : lookTargets(d, net, [slice[k]], targetLook)[0];
+        }
         out.addBoth(slice[k], t[k], look);
       }
     }

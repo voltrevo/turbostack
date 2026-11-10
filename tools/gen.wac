@@ -9,7 +9,8 @@
 //
 // For the `dual` network the arguments after `<out.bin>` are `<lookahead-share‰> <ignored> <lookahead>`: games played with
 // `lookahead` candidates, every board given its greedy target and that share of them a lookahead target as well
-// (`examplesDual`, with 2 candidates).
+// (`examplesDual`, with 2 candidates) — or, with two more arguments `<playouts> <depth>`, from that many playouts of
+// that many moves (`playoutTarget`).
 //
 // `none` is an untrained network — the start of learning from nothing.
 
@@ -34,7 +35,8 @@ export async i32 main(Sys sys) {
   Pieces rng = Pieces.seeded(seed * 7919 + 17);
   if (net.config.heads > 1) {
     Examples dx = examplesDual(d, net, rng, parseInt(a[3]), Exploration((parseInt(a[4]) as f64) / 1000.0, a.len() > 8 ? parseInt(a[8]) : 3),
-                               (parseInt(a[6]) as f64) / 1000.0, 2);
+                               (parseInt(a[6]) as f64) / 1000.0, 2, a.len() > 9 ? parseInt(a[9]) : 0,
+                               a.len() > 10 ? parseInt(a[10]) : 3);
     auto dw = await sys.writeFile(a[5], dx.encode());
     if (dw.isErr()) { sys.log("gen: " + dw.err()!); return 1; }
     return 0;

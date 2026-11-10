@@ -1,0 +1,41 @@
+// Lookahead targets side by side, for boards from a game: exact over two pieces (`lookTargets`) and from playouts
+// (`playoutTarget`), with the time each took.
+//
+//     wac run --allow-read tools/cmptargets.wac <dual.weights> <boards> <playouts> <depth>
+
+import { Sys } from "std";
+import { Device, loadWeights } from "tensor";
+import { Board } from "../src/board.wac";
+import { Pieces } from "../src/game.wac";
+import { Exploration, boardsFromPlay, lookTargets, playoutTarget } from "../src/selfplay.wac";
+import { parseInt } from "../src/text.wac";
+import { ValueConfig, ValueNet } from "../src/value.wac";
+
+export async i32 main(Sys sys) {
+  string[] a = sys.args();
+  Device d = Device.cpu();
+  ValueNet net = ValueNet.create(d, ValueConfig.dual());
+  auto r = loadWeights(net.params, (await sys.readFile(a[0])).orElse(u8[]()));
+  if (r.isErr()) { sys.log(r.err()!); return 1; }
+  Pieces rng = Pieces.seeded(99);
+  Board[] bs = boardsFromPlay(d, net, rng, parseInt(a[1]) * 10, Exploration(0.0, 0));
+  i32 n = parseInt(a[1]);
+  f64 tExact = 0.0;
+  f64 tPlay = 0.0;
+  f64 sd = 0.0;
+  for (i32 i = 0; i < n; i++) {
+    Board b = bs[i * 10];
+    f64 t0 = ((await sys.monotonicNanos()) as~ f64) / 1000000.0;
+    f32 e = lookTargets(d, net, [b], 2)[0];
+    f64 t1 = ((await sys.monotonicNanos()) as~ f64) / 1000000.0;
+    f32 p = playoutTarget(d, net, rng, b, parseInt(a[2]), parseInt(a[3]));
+    f64 t2 = ((await sys.monotonicNanos()) as~ f64) / 1000000.0;
+    f32 v1 = net.valuesOf(d, [b], 1)[0];
+    tExact += t1 - t0;
+    tPlay += t2 - t1;
+    sd += ((p - e) as f64) * ((p - e) as f64);
+    sys.log("lines left \{b.linesRemaining()}: head 1 \{v1.round()}, exact \{e.round()}, playouts \{p.round()}");
+  }
+  sys.log("rms difference \{(sd / (n as f64)).sqrt().round()}; ms a target: exact \{(tExact / (n as f64)).round()}, playouts \{(tPlay / (n as f64)).round()}");
+  return 0;
+}
