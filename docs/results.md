@@ -97,6 +97,10 @@ With lookahead (3 candidates), paired game by game:
 |---|---|---|---|---|
 | v10 iteration 24 | 1–200 | 27,246 ± 377 | +643 ± 438 | −85 ± 347 (27,331) |
 | v10 iteration 36 | 1001–1100 | 29,278 | +1,618 ± 576, higher in 63 of 100 | — |
+| **v10 iteration 36** | **1–200** | **28,590 ± 265** | **+1,987 ± 363**, higher in 138 | **+1,259 ± 294**, higher in 130 of 200 |
+
+v10 iteration 36 (`models/self-taught-dual.weights`, `tools/evaluate.wac dual … 3`) finishes 170 of the 200 games
+(85%) and makes 22.1 tetrises a game; turbostack's model with lookahead finishes 86% and makes 20.8.
 
 Checks on games 1001–1050 alone ran from +858 to +2,850 against v6 and flattered whichever checkpoint was picked by
 them: iteration 24, +2,596 there, was +643 on games 1–200.
@@ -106,4 +110,5 @@ lookahead target the mean of 14 playouts of 3 moves, each move greedy by the sec
 (`playoutTarget`; `PLAYOUTS="14 3"`). Those agree with the exact target to within 44 points RMS at 40% of the cost,
 but the second output then chooses its own playouts' moves, and its error rose (116 → 237 over iterations 8–11). At
 half the learning rate it held at about 150, and after 16 iterations in all it was 1,034 ± 660 behind v10 iteration
-36 over games 1001–1100. Run v12 continues v10 instead.
+36 over games 1001–1100. Run v12 continued v10's exact targets from iteration 36 instead, and found nothing more:
+28,695 at iteration 8 and 28,335 at 16 on games 1001–1100, against iteration 36's 29,278.

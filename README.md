@@ -27,6 +27,9 @@ survival reward that fades to nothing, and TD(λ) targets cheap enough to see fi
 lines, then to survive, then — once only points counted — to build for tetrises. Fine-tuned on exact one-piece
 expectations, it now beats the number above: **23,667 ± 168** on the same 1,000 games, 1,612 ± 233 ahead game by game
 (`docs/results.md`).
+A second output, the value of play with one piece of lookahead, trained on that same search a level up, beats turbostack's
+model when both look ahead: **28,590 ± 265** over games 1–200, 1,259 ± 294 ahead game by game
+(`models/self-taught-dual.weights`).
 
 ## Running things
 
