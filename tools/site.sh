@@ -10,7 +10,7 @@ rm -rf "$out"
 mkdir -p "$out"
 wac run --allow-read --allow-write --allow-run tools/build.wac web/play.wac dist/site-play --title "Tetris, learned from nothing"
 cp dist/site-play/index.html "$out/index.html"
-cp models/self-taught.weights models/turbostack.weights "$out/"
+cp models/self-taught.weights models/self-taught-dual.weights models/turbostack.weights "$out/"
 if [ $# -gt 0 ]; then printf '%s' "$1" > "$out/self-taught.txt"; fi
 touch "$out/.nojekyll"
 echo "site: $out"

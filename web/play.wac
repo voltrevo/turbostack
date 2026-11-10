@@ -1,9 +1,15 @@
 // Two players, one game: the network that taught itself and turbostack's original model, side by side on the same
 // pieces, so the difference between them is their play and not their luck.
 //
-// Built with `tools/build.wac` and served beside `self-taught.weights` and `turbostack.weights` (`sh tools/site.sh`).
-// The address's `#game-<n>` is the piece sequence, so a game can be shared and watched again; without one a random game
-// is chosen, and when both players have finished another starts.
+// Built with `tools/build.wac` and served beside `self-taught.weights`, `self-taught-dual.weights` and
+// `turbostack.weights` (`sh tools/site.sh`). The address's `#game-<n>` is the piece sequence, so a game can be shared and
+// watched again — `#game-<n>-greedy` the same game without lookahead; without one a random game is chosen, and when
+// both players have finished another starts.
+//
+// Both players play the same way, chosen on the page: **with lookahead** (the default), each looks one piece further
+// for its three best placements — the self-taught player with its dual network, candidates by its greedy value and the
+// boards a piece deeper by its lookahead value; or **greedily**, each piece where its model values the result most, the
+// self-taught player with its greedy network.
 
 import { Page, Site, Element, ElementEvent, Listen } from "web";
 import { Result } from "core";
@@ -11,6 +17,8 @@ import { Device, Tensor, loadWeights } from "tensor";
 import { Board, Placement, pieceName } from "../src/board.wac";
 import { Pieces } from "../src/game.wac";
 import { LegacyScoreModel } from "../src/legacy.wac";
+import { lookahead } from "../src/lookahead.wac";
+import { dualLook } from "../src/selfplay.wac";
 import { ValueConfig, ValueNet } from "../src/value.wac";
 import { parseInt } from "../src/text.wac";
 
@@ -155,7 +163,10 @@ export async i32 main(Page page) {
              -webkit-text-size-adjust: 100%; }
       main { max-width: 44rem; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 12px calc(88px + env(safe-area-inset-bottom)); }
       h1 { font-size: 1.35rem; margin: 4px 4px 2px; letter-spacing: -0.01em; }
-      .lede { color: var(--muted); margin: 0 4px 14px; font-size: .92rem; }
+      .lede { color: var(--muted); margin: 0 4px 10px; font-size: .92rem; }
+      .modes { display: flex; margin: 0 0 14px; border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+      .modes button { flex: 1; border: 0; border-radius: 0; min-height: 40px; background: transparent; font-weight: 500; }
+      .modes button.on { background: var(--card); font-weight: 700; color: var(--accent); }
       .duel { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
       .card { background: var(--card); border: 1px solid var(--rule); border-radius: 14px; padding: 10px; min-width: 0; }
       .head { display: flex; flex-direction: column; margin: 0 2px 8px; }
@@ -190,6 +201,12 @@ export async i32 main(Page page) {
   main.append("h1").text("Tetris, learned from nothing");
   main.append("p").attr("class", "lede");
   main.kidAt(1).text("A network that taught itself to play by self-play, against turbostack's original model — the same pieces for both.");
+  Element modes = main.append("div");
+  modes.attr("class", "modes");
+  Element lookButton = modes.append("button");
+  lookButton.text("Looking ahead");
+  Element greedyButton = modes.append("button");
+  greedyButton.text("Greedy");
   Element duel = main.append("div");
   duel.attr("class", "duel");
   Player mine = playerIn(duel, "Self-taught", "learned by self-play", true);
@@ -198,21 +215,31 @@ export async i32 main(Page page) {
   tally.attr("class", "tally");
   Element about = main.append("section");
   about.attr("class", "about");
-  about.append("h3").text("Over 1,000 games");
+  about.append("h3").text("Looking ahead, over 200 games");
   Element numbers = about.append("div");
   numbers.attr("class", "numbers");
   Element n1 = numbers.append("div");
   n1.appendText("turbostack's original model");
-  n1.append("b").text("22,055");
+  n1.append("b").text("27,331");
   Element n2 = numbers.append("div");
-  n2.appendText("Self-taught, so far");
-  Element mineNumber = n2.append("b");
-  mineNumber.text("training…");
+  n2.appendText("Self-taught");
+  n2.append("b").text("28,590");
+  about.append("p").text("The same games for both: the self-taught player is 1,259 ± 294 points a game ahead, higher in 130 of the 200.");
+  about.append("h3").text("Greedy, over 1,000 games");
+  Element greedyNumbers = about.append("div");
+  greedyNumbers.attr("class", "numbers");
+  Element g1 = greedyNumbers.append("div");
+  g1.appendText("turbostack's original model");
+  g1.append("b").text("22,055");
+  Element g2 = greedyNumbers.append("div");
+  g2.appendText("Self-taught");
+  g2.append("b").text("23,667");
   about.append("h3").text("How it learned");
   about.append("p").text("It started knowing nothing: random weights, no human games. It played against itself, and after every round learned to predict how many more points a board would score — at first rewarded a little just for surviving, a reward that faded to nothing as it got better, until only the real score counted.");
+  about.append("p").text("To look ahead well it then learned a second number for each board: what it is worth if play goes on looking ahead, trained against that same search one piece deeper. Every move it learned from was its own.");
   about.append("p").text("turbostack's model needed to learn a person's play first before self-play could improve it. This one never saw a human game.");
   about.append("h3").text("The rules");
-  about.append("p").text("130 lines a game, scored 40, 100, 300 and 1,200 for one to four lines at once. No next-piece preview. A stack taller than 15 rows ends the game. Both players are greedy: each piece goes where its model values the result most.");
+  about.append("p").text("130 lines a game, scored 40, 100, 300 and 1,200 for one to four lines at once. No next-piece preview. A stack taller than 15 rows ends the game. Greedy, each piece goes where its model values the result most. Looking ahead, each player also takes its three best placements a piece further: for every one of the seven pieces that could come next, the best it could then do — and plays the placement whose average is best.");
 
   Element bar = root.append("div");
   bar.attr("class", "bar");
@@ -243,22 +270,44 @@ export async i32 main(Page page) {
   }
   pause.on("click", Listen.none(), (ElementEvent e) => { paused = !paused; });
   again.on("click", Listen.none(), (ElementEvent e) => { fresh = true; seed = 0; paused = false; });
+  bool looking = true;
+  // The game being played, so a change of mode replays it the other way.
+  i32 current = 0;
+  lookButton.on("click", Listen.none(), (ElementEvent e) => {
+    if (!looking) { looking = true; fresh = true; seed = current; paused = false; }
+  });
+  greedyButton.on("click", Listen.none(), (ElementEvent e) => {
+    if (looking) { looking = false; fresh = true; seed = current; paused = false; }
+  });
   Result<Site, string> site = await Site.of(page.sys);
   Device d = Device.cpu();
   ValueNet net = ValueNet.create(d, ValueConfig.standard());
+  ValueNet dual = ValueNet.create(d, ValueConfig.dual());
   LegacyScoreModel legacy = LegacyScoreModel.create(d);
   bool loaded = site.isOk()
              && loadWeights(net.params, (await site.ok()!.get("self-taught.weights")).orElse(u8[]())).isOk()
+             && loadWeights(dual.params, (await site.ok()!.get("self-taught-dual.weights")).orElse(u8[]())).isOk()
              && loadWeights(legacy.params, (await site.ok()!.get("turbostack.weights")).orElse(u8[]())).isOk();
+  fn<f32[](Board[])> legacyFinal = (Board[] bs) => {
+    Tensor t = d.tidy(() => legacy.predict(d, bs));
+    f32[] out = t.valuesNow();
+    t.dispose();
+    return out;
+  };
   if (!loaded) {
     tally.text("The models' weights are not on this site, so there is nothing to watch.");
     return 1;
   }
   // The address is known once the page has heard from its host, which it has by now: read it here, not at the start.
   string where = page.location();
-  if (where.len() > 5 && where.slice(0, 5) == "game-") { seed = parseInt(where.slice(5, where.len())); }
-  Result<u8[], string> best = await site.ok()!.get("self-taught.txt");
-  if (best.isOk()) { mineNumber.text(string.fromBytes(best.ok()!)); }
+  if (where.len() > 5 && where.slice(0, 5) == "game-") {
+    string rest = where.slice(5, where.len());
+    if (rest.len() > 7 && rest.slice(rest.len() - 7, rest.len()) == "-greedy") {
+      looking = false;
+      rest = rest.slice(0, rest.len() - 7);
+    }
+    seed = parseInt(rest);
+  }
 
   i32 mineWins = 0;
   i32 oldWins = 0;
@@ -269,12 +318,15 @@ export async i32 main(Page page) {
     if (fresh) {
       fresh = false;
       if (seed == 0) { seed = 1 + ((page.now() * 7919.0) % 999983.0).floor() as~ i32; }
-      page.go("game-\{seed}", false);
+      current = seed;
+      page.go(looking ? "game-\{seed}" : "game-\{seed}-greedy", false);
       for (Player p in players) { restart(p, seed); show(p); }
       seed = 0;
       finishedAt = 0.0;
     }
     for (i32 k = 0; k < 4; k++) { speedButtons[k].attr("class", k == speed ? "on" : ""); }
+    lookButton.attr("class", looking ? "on" : "");
+    greedyButton.attr("class", looking ? "" : "on");
     pause.text(paused ? "Play" : "Pause");
     bool allDone = mine.done && old.done;
     if (paused || allDone) {
@@ -295,13 +347,14 @@ export async i32 main(Page page) {
       Board[] cs = Board[].filled(ps.len(), p.board);
       for (i32 k = 0; k < ps.len(); k++) { cs[k] = p.board.after(ps[k]); }
       f32[] v = f32[]();
-      if (p.selfTaught) {
+      if (p.selfTaught && looking) {
+        v = dualLook(d, dual, cs, 3);
+      } else if (p.selfTaught) {
         v = net.values(d, cs);
         for (i32 k = 0; k < cs.len(); k++) { v[k] = ((cs[k].score as f64) + (v[k] as f64)) as~ f32; }
       } else {
-        Tensor t = d.tidy(() => legacy.predict(d, cs));
-        v = t.valuesNow();
-        t.dispose();
+        v = legacyFinal(cs);
+        if (looking) { v = lookahead(cs, v, 3, legacyFinal); }
       }
       i32 pick = 0;
       for (i32 k = 1; k < v.len(); k++) { if (v[k] > v[pick]) { pick = k; } }
