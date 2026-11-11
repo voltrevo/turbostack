@@ -395,6 +395,27 @@ export f32[] dualLook(Device d, ValueNet net, Board[] choices, i32 look) {
 }
 
 /**
+ * A deeper player: two pieces ahead. Its `look` best placements by head 0, each valued as its score plus its
+ * lookahead target with `look2` candidates (`lookTargets`) — for every piece that could come next, the best the
+ * one-piece dual player would then do, averaged; the rest below them. About `look × 7 × (1 + 7 × look2)` times the
+ * boards valued that one level of lookahead values: 14 times as many, for 3 and 2.
+ */
+export f32[] deepLook(Device d, ValueNet net, Board[] choices, i32 look, i32 look2) {
+  f32[] v = finalScoresOf(d, net, choices, 0);
+  i32 k = look < choices.len() ? look : choices.len();
+  bool[] taken = bool[].filled(choices.len(), false);
+  f32[] out = f32[].filled(choices.len(), -1.0e30);
+  for (i32 t = 0; t < k; t++) {
+    i32 best = -1;
+    for (i32 i = 0; i < choices.len(); i++) { if (!taken[i] && (best < 0 || v[i] > v[best])) { best = i; } }
+    taken[best] = true;
+    Board c = choices[best];
+    out[best] = c.finished ? (c.score as~ f32) : (((c.score as f64) + (lookTargets(d, net, [c], look2)[0] as f64)) as~ f32);
+  }
+  return out;
+}
+
+/**
  * The lookahead target of each of `boards`: the mean over the seven pieces of the points still to come if the dual
  * player places that piece with `look` candidates — the best of its estimates, less the score so far — and nothing for
  * a piece with nowhere to go.

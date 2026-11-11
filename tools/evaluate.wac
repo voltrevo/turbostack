@@ -8,6 +8,8 @@
 //
 // `dual` is the network with a second, lookahead value: greedy, it plays by the first; with lookahead, it chooses
 // candidates by the first and values the boards a piece deeper by the second. `dual1` plays by the second throughout.
+// For `dual`, lookahead `k:k2` looks two pieces ahead (`deepLook`): its k best placements, each valued by the one-piece
+// player with k2 candidates for every piece that could come next.
 //
 // Plays the games of seeds `from` to `to` (mulberry32 piece sequences, 130 lines each, greedy), printing one line a
 // game — `<seed> <score> <positions> <lines> <tetrises>`, as `turbostack-compare`'s `baseline.ts` does — and then the
@@ -20,15 +22,19 @@ import { lookahead } from "../src/lookahead.wac";
 import { Evaluator, GameResult, Pieces, play } from "../src/game.wac";
 import { LegacyScoreModel } from "../src/legacy.wac";
 
-import { finalScoresOf } from "../src/selfplay.wac";
+import { deepLook, finalScoresOf } from "../src/selfplay.wac";
 import { ValueConfig, ValueNet } from "../src/value.wac";
-import { parseInt } from "../src/text.wac";
+import { parseInt, splitOn } from "../src/text.wac";
 
 export async i32 main(Sys sys) {
   string[] args = sys.args();
   Device d = Device.cpu();
   u8[] weights = (await sys.readFile(args[1])).orElse(u8[]());
-  i32 look = args.len() > 4 ? parseInt(args[4]) : 0;
+  string[] lookArg = args.len() > 4 ? splitOn(args[4], 58 as u8) : ["0"];
+  i32 look = parseInt(lookArg[0]);
+  i32 look2 = lookArg.len() > 1 ? parseInt(lookArg[1]) : 0;
+  // The two-piece player, for `dual` with `k:k2`.
+  fn<f32[](Board[])> deep = (Board[] bs) => f32[]();
   // Each model as one thing: an estimate of the game's final score from a board. The old model is one already; the
   // new one adds its value — points still to come — to the score so far, and a finished game comes to its score.
   fn<f32[](Board[])> finalScore;
@@ -59,10 +65,12 @@ export async i32 main(Sys sys) {
     i32 second = net.config.heads > 1 ? 1 : 0;
     finalScore = (Board[] bs) => finalScoresOf(d, net, bs, first);
     deeper = (Board[] bs) => finalScoresOf(d, net, bs, second);
+    deep = (Board[] bs) => deepLook(d, net, bs, look, look2);
   }
   Evaluator e = Evaluator((Board[] bs) => {
     f32[] v = finalScore(bs);
     if (look == 0) { return v; }
+    if (look2 > 0) { return deep(bs); }
     return lookahead(bs, v, look, deeper);
   });
   i32 from = parseInt(args[2]);

@@ -112,3 +112,21 @@ but the second output then chooses its own playouts' moves, and its error rose (
 half the learning rate it held at about 150, and after 16 iterations in all it was 1,034 ± 660 behind v10 iteration
 36 over games 1001–1100. Run v12 continued v10's exact targets from iteration 36 instead, and found nothing more:
 28,695 at iteration 8 and 28,335 at 16 on games 1001–1100, against iteration 36's 29,278.
+
+## Looking two pieces ahead at play time
+
+`deepLook` takes the 3 best placements by the greedy output and values each as its points plus, averaged over the
+seven next pieces, the best that one-piece lookahead (3 candidates, second output at the leaves) can then reach: the
+same search as the training target. It is an option: `tools/evaluate.wac dual models/self-taught-dual.weights 1 49 3:2`.
+It costs about 14 times one-piece lookahead, roughly 2.5 seconds a move on one CPU core (14 minutes a game).
+
+Games 1–49, paired with the same pieces:
+
+| | Mean score | Two pieces ahead against it |
+|---|---|---|
+| **v10 iteration 36, two pieces ahead** | **29,893 ± 412** | — |
+| v10 iteration 36, one piece ahead | 29,098 | +795 ± 479, higher in 29 of 49 |
+| turbostack's model, one piece ahead | 27,679 | +2,214 ± 502, higher in 36 of 49 |
+
+It is probably better than one piece ahead, but 1.7 standard errors is not a clear win for its cost, so it is not
+on the duel page.
