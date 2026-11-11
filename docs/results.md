@@ -120,13 +120,15 @@ seven next pieces, the best that one-piece lookahead (3 candidates, second outpu
 same search as the training target. It is an option: `tools/evaluate.wac dual models/self-taught-dual.weights 1 49 3:2`.
 It costs about 14 times one-piece lookahead, roughly 2.5 seconds a move on one CPU core (14 minutes a game).
 
-Games 1–49, paired with the same pieces:
+Paired with the same pieces, games 1–49 and then the run stopped part-way at 138 of games 1–200
+(`docs/runs/two-piece-games.txt`; `sh tools/resume-two-piece.sh` plays the rest and prints the comparison):
 
-| | Mean score | Two pieces ahead against it |
-|---|---|---|
-| **v10 iteration 36, two pieces ahead** | **29,893 ± 412** | — |
-| v10 iteration 36, one piece ahead | 29,098 | +795 ± 479, higher in 29 of 49 |
-| turbostack's model, one piece ahead | 27,679 | +2,214 ± 502, higher in 36 of 49 |
+| Games | Two pieces ahead | Against one piece ahead | Against turbostack's model, one piece ahead |
+|---|---|---|---|
+| 1–49 | 29,893 ± 412 | +795 ± 479, higher in 29 of 49 | +2,214 ± 502, higher in 36 |
+| 138 of 1–200 | 29,275 | +506 ± 320, higher in 79 of 138 | +1,830 ± 314, higher in 98 |
 
-It is probably better than one piece ahead, but 1.7 standard errors is not a clear win for its cost, so it is not
-on the duel page.
+So far it is probably better than one piece ahead, by about 500 (1.6 standard errors), at 14 times the cost: not a
+clear win, so it is not on the duel page. Most of its ~2.7 s a move is the network valuing ~7,300 boards; finding the
+placements is ~13 µs a piece. A cheap filter network at the deepest level, and other ways to combine the seven
+pieces' outcomes than their mean (branch `risk`: `tools/evaluate.wac … 3 min|sd5|sd10|worst3`), are untested next steps.
