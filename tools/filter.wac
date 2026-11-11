@@ -20,7 +20,7 @@ import { FilterNet } from "../src/filter.wac";
 import { Pieces, argmax } from "../src/game.wac";
 import { lookaheadWith } from "../src/lookahead.wac";
 import { Examples, deepLookWith, finalScoresOf } from "../src/selfplay.wac";
-import { parseInt } from "../src/text.wac";
+import { parseInt, splitOn } from "../src/text.wac";
 import { ValueConfig, ValueNet } from "../src/value.wac";
 import { Vec } from "core";
 
@@ -87,10 +87,75 @@ Group[] decodeGroups(Examples ex) {
 
 async Group[] load(Sys sys, string path) { return decodeGroups(Examples.decode((await sys.readFile(path)).orElse(u8[]()))); }
 
+/** A search setting, written `look[:look2][/keep]`: one-piece with `look` candidates, or two-piece, filtered or not. */
+struct Setting {
+  string name;
+  i32 look;
+  i32 look2;
+  i32 keep;
+}
+
+Setting setting(string text) {
+  string[] parts = splitOn(text, 47 as u8);
+  string[] looks = splitOn(parts[0], 58 as u8);
+  return Setting(text, parseInt(looks[0]), looks.len() > 1 ? parseInt(looks[1]) : 0, parts.len() > 1 ? parseInt(parts[1]) : 0);
+}
+
+f32[] search(Device d, ValueNet net, Board[] cs, Setting s, fn<f32[](Board[])> filter) {
+  if (s.look2 > 0) { return deepLookWith(d, net, cs, s.look, s.look2, filter, s.keep); }
+  f32[] v = finalScoresOf(d, net, cs, 0);
+  return lookaheadWith(cs, v, s.look, (Board[] bs) => finalScoresOf(d, net, bs, 1), 0, 0.0, filter, s.keep);
+}
+
+/**
+ * `screen <dual.weights> <filter.weights> <hidden> <from> <to> <reference> <setting>...`: plays the games by the
+ * reference setting and says, for each other setting, how often it makes the reference's move and how long it takes.
+ */
+async i32 screen(Sys sys, Device d, string[] a) {
+  ValueNet net = ValueNet.create(d, ValueConfig.dual());
+  auto r = loadWeights(net.params, (await sys.readFile(a[1])).orElse(u8[]()));
+  if (r.isErr()) { sys.log("filter: " + r.err()!); return 1; }
+  FilterNet f = FilterNet.create(d, parseInt(a[3]));
+  auto fr = loadWeights(f.params, (await sys.readFile(a[2])).orElse(u8[]()));
+  if (fr.isErr()) { sys.log("filter: " + fr.err()!); return 1; }
+  fn<f32[](Board[])> filter = (Board[] bs) => f.ranks(d, bs);
+  Setting ref = setting(a[6]);
+  i32 n = a.len() - 7;
+  Setting[] ss = Setting[].filled(n, ref);
+  for (i32 i = 0; i < n; i++) { ss[i] = setting(a[7 + i]); }
+  i32[] same = i32[].filled(n, 0);
+  i64[] nanos = i64[].filled(n + 1, 0 as i64);
+  i32 moves = 0;
+  for (i32 seed = parseInt(a[4]); seed <= parseInt(a[5]); seed++) {
+    Pieces p = Pieces.seeded(seed);
+    Board b = Board.empty(130);
+    while (!b.finished) {
+      Board[] cs = b.choices(p.next());
+      if (cs.len() == 0) { break; }
+      i64 t0 = await sys.monotonicNanos();
+      i32 move = argmax(search(d, net, cs, ref, filter));
+      nanos[0] += (await sys.monotonicNanos()) - t0;
+      for (i32 i = 0; i < n; i++) {
+        i64 t1 = await sys.monotonicNanos();
+        if (argmax(search(d, net, cs, ss[i], filter)) == move) { same[i]++; }
+        nanos[i + 1] += (await sys.monotonicNanos()) - t1;
+      }
+      moves++;
+      b = cs[move];
+    }
+  }
+  sys.log("\{moves} moves; reference \{ref.name}: \{(nanos[0] / (moves as i64)) / (1000000 as i64)} ms a move");
+  for (i32 i = 0; i < n; i++) {
+    sys.log("\{ss[i].name}: same move \{((same[i] as f64) * 1000.0 / (moves as f64)).round() / 10.0}%, \{(nanos[i + 1] / (moves as i64)) / (1000000 as i64)} ms a move");
+  }
+  return 0;
+}
+
 export async i32 main(Sys sys) {
   string[] a = sys.args();
   Device d = Device.cpu();
   d.seed(77 as i64);
+  if (a[0] == "screen") { return await screen(sys, d, a); }
   bool two = a[0] == "agree2";
   if (a[0] == "agree" || two) {
     ValueNet net = ValueNet.create(d, ValueConfig.dual());
