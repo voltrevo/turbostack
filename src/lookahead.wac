@@ -22,6 +22,16 @@ export static i32 RULE_WORST = 3;
 
 /** `lookahead`, with the seven outcomes combined by `rule` (`RULE_…`) instead of their mean. */
 export f32[] lookaheadBy(Board[] choices, f32[] v, i32 look, fn<f32[](Board[])> finalScore, i32 rule, f64 param) {
+  return lookaheadWith(choices, v, look, finalScore, rule, param, (Board[] bs) => f32[](), 0);
+}
+
+/**
+ * `lookaheadBy`, with a cheap `filter` at the deepest level: of each piece's placements, only the `keep` it ranks
+ * highest, and any that end the game, are valued by `finalScore` — none filtered for `keep` 0. The filter ranks every
+ * placement of every piece in one batch.
+ */
+export f32[] lookaheadWith(Board[] choices, f32[] v, i32 look, fn<f32[](Board[])> finalScore, i32 rule, f64 param,
+                           fn<f32[](Board[])> filter, i32 keep) {
   i32 k = look < choices.len() ? look : choices.len();
   i32[] top = i32[].filled(k, 0);
   bool[] taken = bool[].filled(choices.len(), false);
@@ -31,7 +41,7 @@ export f32[] lookaheadBy(Board[] choices, f32[] v, i32 look, fn<f32[](Board[])> 
     taken[best] = true;
     top[t] = best;
   }
-  Vec<Board> deeper = Vec.create();
+  Vec<Board> found = Vec.create();
   i32[] counts = i32[].filled(k * PIECE_COUNT, 0);
   for (i32 t = 0; t < k; t++) {
     Board c = choices[top[t]];
@@ -39,7 +49,37 @@ export f32[] lookaheadBy(Board[] choices, f32[] v, i32 look, fn<f32[](Board[])> 
     for (i32 p = 0; p < PIECE_COUNT; p++) {
       Board[] cs = c.choices(p);
       counts[t * PIECE_COUNT + p] = cs.len();
-      for (Board x in cs) { deeper.push(x); }
+      for (Board x in cs) { found.push(x); }
+    }
+  }
+  Vec<Board> deeper = found;
+  if (keep > 0 && found.len() > 0) {
+    Board[] every = found.toArray();
+    f32[] fr = filter(every);
+    deeper = Vec.create();
+    i32 from = 0;
+    for (i32 g = 0; g < k * PIECE_COUNT; g++) {
+      i32 n = counts[g];
+      bool[] kept = bool[].filled(n, n <= keep);
+      for (i32 i = 0; i < n; i++) { if (every[from + i].finished) { kept[i] = true; } }
+      if (n > keep) {
+        bool[] used = bool[].filled(n, false);
+        for (i32 q = 0; q < keep; q++) {
+          i32 b = -1;
+          for (i32 i = 0; i < n; i++) { if (!used[i] && (b < 0 || fr[from + i] > fr[from + b])) { b = i; } }
+          used[b] = true;
+          kept[b] = true;
+        }
+      }
+      i32 m = 0;
+      for (i32 i = 0; i < n; i++) {
+        if (kept[i]) {
+          deeper.push(every[from + i]);
+          m++;
+        }
+      }
+      counts[g] = m;
+      from += n;
     }
   }
   f32[] dv = deeper.len() > 0 ? finalScore(deeper.toArray()) : f32[]();

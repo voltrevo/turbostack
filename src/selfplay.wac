@@ -17,7 +17,7 @@ import { Buf, Vec } from "core";
 import { Device } from "tensor";
 import { Board, PIECE_COUNT } from "./board.wac";
 import { Pieces, argmax } from "./game.wac";
-import { lookahead } from "./lookahead.wac";
+import { lookahead, lookaheadWith } from "./lookahead.wac";
 import { ValueNet } from "./value.wac";
 
 /** Not a target: a board with no lookahead target has this as one. */
@@ -394,6 +394,12 @@ export f32[] dualLook(Device d, ValueNet net, Board[] choices, i32 look) {
   return lookahead(choices, v, look, (Board[] bs) => finalScoresOf(d, net, bs, 1));
 }
 
+/** `dualLook` with a cheap `filter` at its deepest level, keeping `keep` of each piece's placements (`lookaheadWith`). */
+export f32[] dualLookWith(Device d, ValueNet net, Board[] choices, i32 look, fn<f32[](Board[])> filter, i32 keep) {
+  f32[] v = finalScoresOf(d, net, choices, 0);
+  return lookaheadWith(choices, v, look, (Board[] bs) => finalScoresOf(d, net, bs, 1), 0, 0.0, filter, keep);
+}
+
 /**
  * A deeper player: two pieces ahead. Its `look` best placements by head 0, each valued as its score plus its
  * lookahead target with `look2` candidates (`lookTargets`) — for every piece that could come next, the best the
@@ -401,6 +407,12 @@ export f32[] dualLook(Device d, ValueNet net, Board[] choices, i32 look) {
  * boards valued that one level of lookahead values: 14 times as many, for 3 and 2.
  */
 export f32[] deepLook(Device d, ValueNet net, Board[] choices, i32 look, i32 look2) {
+  return deepLookWith(d, net, choices, look, look2, (Board[] bs) => f32[](), 0);
+}
+
+/** `deepLook` with a cheap `filter` at the deepest level, keeping `keep` of each piece's placements. */
+export f32[] deepLookWith(Device d, ValueNet net, Board[] choices, i32 look, i32 look2, fn<f32[](Board[])> filter,
+                          i32 keep) {
   f32[] v = finalScoresOf(d, net, choices, 0);
   i32 k = look < choices.len() ? look : choices.len();
   bool[] taken = bool[].filled(choices.len(), false);
@@ -410,7 +422,7 @@ export f32[] deepLook(Device d, ValueNet net, Board[] choices, i32 look, i32 loo
     for (i32 i = 0; i < choices.len(); i++) { if (!taken[i] && (best < 0 || v[i] > v[best])) { best = i; } }
     taken[best] = true;
     Board c = choices[best];
-    out[best] = c.finished ? (c.score as~ f32) : (((c.score as f64) + (lookTargets(d, net, [c], look2)[0] as f64)) as~ f32);
+    out[best] = c.finished ? (c.score as~ f32) : (((c.score as f64) + (lookTargetsWith(d, net, [c], look2, filter, keep)[0] as f64)) as~ f32);
   }
   return out;
 }
@@ -421,13 +433,18 @@ export f32[] deepLook(Device d, ValueNet net, Board[] choices, i32 look, i32 loo
  * a piece with nowhere to go.
  */
 export f32[] lookTargets(Device d, ValueNet net, Board[] boards, i32 look) {
+  return lookTargetsWith(d, net, boards, look, (Board[] bs) => f32[](), 0);
+}
+
+/** `lookTargets` with a cheap `filter` at the deepest level, keeping `keep` of each piece's placements. */
+export f32[] lookTargetsWith(Device d, ValueNet net, Board[] boards, i32 look, fn<f32[](Board[])> filter, i32 keep) {
   f32[] out = f32[].filled(boards.len(), 0.0);
   for (i32 k = 0; k < boards.len(); k++) {
     f64 total = 0.0;
     for (i32 p = 0; p < PIECE_COUNT; p++) {
       Board[] cs = boards[k].choices(p);
       if (cs.len() == 0) { continue; }
-      f32[] v = dualLook(d, net, cs, look);
+      f32[] v = dualLookWith(d, net, cs, look, filter, keep);
       total += (v[argmax(v)] as f64) - (boards[k].score as f64);
     }
     out[k] = (total / (PIECE_COUNT as f64)) as~ f32;

@@ -1,0 +1,254 @@
+// Teach the cheap filter (`src/filter.wac`) and measure how well it ranks.
+//
+//     wac run --allow-read --allow-write tools/filter.wac gen <dual.weights> <out.bin> <from seed> <to seed>
+//     wac run --allow-read tools/filter.wac agree|agree2 <dual.weights> <filter.weights> <hidden> <from seed> <to seed> <keep>...
+//     wac run --allow-read --allow-write tools/filter.wac fit <out.weights> <hidden> <epochs> <test.bin> <train.bin>...
+//
+// `gen` plays the games of the seeds greedily by the dual network's first output and, at each move, takes the 3
+// placements one-piece lookahead would look at; every piece's placements from each of those is a group, valued by the
+// second output as lookahead values them. They are kept as examples, the group's number in place of a lookahead target.
+// `fit` teaches the filter on the training groups, then reports, for the test groups and k = 1 … 8: how often the
+// filter's top k holds the full network's best placement, and the points lost on average if lookahead had taken the
+// best of the filter's top k instead. `agree` plays the games of the seeds by one-piece lookahead (3 candidates), `agree2` by two-piece (3:2), and,
+// at every move, says how often lookahead with the filter keeping each `keep` would have made the same move, and the
+// mean points its move is worth less by the unfiltered search's own estimate.
+
+import { Sys } from "std";
+import { Adam, Device, Tensor, loadWeights, saveWeightsNow } from "tensor";
+import { Board, PIECE_COUNT } from "../src/board.wac";
+import { FilterNet } from "../src/filter.wac";
+import { Pieces, argmax } from "../src/game.wac";
+import { lookaheadWith } from "../src/lookahead.wac";
+import { Examples, deepLookWith, finalScoresOf } from "../src/selfplay.wac";
+import { parseInt } from "../src/text.wac";
+import { ValueConfig, ValueNet } from "../src/value.wac";
+import { Vec } from "core";
+
+struct Group {
+  Board[] boards;
+  f32[] targets;
+}
+
+Group[] groupsOf(Device d, ValueNet net, i32 from, i32 to) {
+  Vec<Group> out = Vec.create();
+  for (i32 seed = from; seed < to; seed++) {
+    Pieces p = Pieces.seeded(seed);
+    Board b = Board.empty(130);
+    while (!b.finished) {
+      Board[] cs = b.choices(p.next());
+      if (cs.len() == 0) { break; }
+      f32[] v = finalScoresOf(d, net, cs, 0);
+      bool[] taken = bool[].filled(cs.len(), false);
+      for (i32 t = 0; t < 3 && t < cs.len(); t++) {
+        i32 best = -1;
+        for (i32 i = 0; i < cs.len(); i++) { if (!taken[i] && (best < 0 || v[i] > v[best])) { best = i; } }
+        taken[best] = true;
+        if (cs[best].finished) { continue; }
+        for (i32 q = 0; q < PIECE_COUNT; q++) {
+          Board[] g = cs[best].choices(q);
+          if (g.len() < 2) { continue; }
+          f32[] tv = finalScoresOf(d, net, g, 1);
+          // A finished board is worth its score, as lookahead counts it.
+          for (i32 i = 0; i < g.len(); i++) { if (g[i].finished) { tv[i] = g[i].score as~ f32; } }
+          out.push(Group(g, tv));
+        }
+      }
+      b = cs[argmax(v)];
+    }
+  }
+  return out.toArray();
+}
+
+/** Groups as examples: the target, and the group's number where a lookahead target would go. */
+Examples encodeGroups(Group[] gs) {
+  Examples ex = Examples.create();
+  for (i32 k = 0; k < gs.len(); k++) {
+    for (i32 i = 0; i < gs[k].boards.len(); i++) { ex.addBoth(gs[k].boards[i], gs[k].targets[i], k as~ f32); }
+  }
+  return ex;
+}
+
+Group[] decodeGroups(Examples ex) {
+  Vec<Group> out = Vec.create();
+  i32 i = 0;
+  while (i < ex.len()) {
+    f32 id = ex.looks.get(i);
+    Vec<Board> bs = Vec.create();
+    Vec<f32> ts = Vec.create();
+    while (i < ex.len() && ex.looks.get(i) == id) {
+      bs.push(ex.boards.get(i));
+      ts.push(ex.targets.get(i));
+      i++;
+    }
+    out.push(Group(bs.toArray(), ts.toArray()));
+  }
+  return out.toArray();
+}
+
+async Group[] load(Sys sys, string path) { return decodeGroups(Examples.decode((await sys.readFile(path)).orElse(u8[]()))); }
+
+export async i32 main(Sys sys) {
+  string[] a = sys.args();
+  Device d = Device.cpu();
+  d.seed(77 as i64);
+  bool two = a[0] == "agree2";
+  if (a[0] == "agree" || two) {
+    ValueNet net = ValueNet.create(d, ValueConfig.dual());
+    auto r = loadWeights(net.params, (await sys.readFile(a[1])).orElse(u8[]()));
+    if (r.isErr()) { sys.log("filter: " + r.err()!); return 1; }
+    FilterNet f = FilterNet.create(d, parseInt(a[3]));
+    auto fr = loadWeights(f.params, (await sys.readFile(a[2])).orElse(u8[]()));
+    if (fr.isErr()) { sys.log("filter: " + fr.err()!); return 1; }
+    i32 nk = a.len() - 6;
+    i32[] keeps = i32[].filled(nk, 0);
+    for (i32 i = 0; i < nk; i++) { keeps[i] = parseInt(a[6 + i]); }
+    i32[] same = i32[].filled(nk, 0);
+    f64[] lost = f64[].filled(nk, 0.0);
+    i64[] nanos = i64[].filled(nk + 1, 0 as i64);
+    i32 moves = 0;
+    fn<f32[](Board[])> deeper = (Board[] bs) => finalScoresOf(d, net, bs, 1);
+    fn<f32[](Board[])> filter = (Board[] bs) => f.ranks(d, bs);
+    for (i32 seed = parseInt(a[4]); seed <= parseInt(a[5]); seed++) {
+      Pieces p = Pieces.seeded(seed);
+      Board b = Board.empty(130);
+      while (!b.finished) {
+        Board[] cs = b.choices(p.next());
+        if (cs.len() == 0) { break; }
+        i64 t0 = await sys.monotonicNanos();
+        f32[] v = finalScoresOf(d, net, cs, 0);
+        f32[] full = two ? deepLookWith(d, net, cs, 3, 2, filter, 0) : lookaheadWith(cs, v, 3, deeper, 0, 0.0, filter, 0);
+        nanos[0] += (await sys.monotonicNanos()) - t0;
+        i32 move = argmax(full);
+        for (i32 i = 0; i < nk; i++) {
+          i64 t1 = await sys.monotonicNanos();
+          f32[] fv = finalScoresOf(d, net, cs, 0);
+          f32[] fl = two ? deepLookWith(d, net, cs, 3, 2, filter, keeps[i]) : lookaheadWith(cs, fv, 3, deeper, 0, 0.0, filter, keeps[i]);
+          nanos[i + 1] += (await sys.monotonicNanos()) - t1;
+          i32 m = argmax(fl);
+          if (m == move) { same[i]++; }
+          lost[i] += (full[move] as f64) - (full[m] as f64);
+        }
+        moves++;
+        b = cs[move];
+      }
+    }
+    sys.log("\{moves} moves; unfiltered \{(nanos[0] / (moves as i64)) / (1000000 as i64)} ms a move");
+    for (i32 i = 0; i < nk; i++) {
+      sys.log("keep \{keeps[i]}: same move \{((same[i] as f64) * 100.0 / (moves as f64))}%, \{lost[i] / (moves as f64)} points lost a move by the unfiltered estimate, \{(nanos[i + 1] / (moves as i64)) / (1000000 as i64)} ms a move");
+    }
+    return 0;
+  }
+  if (a[0] == "gen") {
+    ValueNet net = ValueNet.create(d, ValueConfig.dual());
+    auto r = loadWeights(net.params, (await sys.readFile(a[1])).orElse(u8[]()));
+    if (r.isErr()) { sys.log("filter: " + r.err()!); return 1; }
+    Group[] gs = groupsOf(d, net, parseInt(a[3]), parseInt(a[4]) + 1);
+    auto w = await sys.writeFile(a[2], encodeGroups(gs).encode());
+    if (w.isErr()) { sys.log("filter: " + w.err()!); return 1; }
+    sys.log("\{gs.len()} groups");
+    return 0;
+  }
+  i32 hidden = parseInt(a[2]);
+  i32 epochs = parseInt(a[3]);
+  Group[] test = await load(sys, a[4]);
+  Vec<Group> all = Vec.create();
+  for (i32 k = 5; k < a.len(); k++) {
+    Group[] gs = await load(sys, a[k]);
+    for (Group g in gs) { all.push(g); }
+  }
+  Group[] train = all.toArray();
+  sys.log("\{train.len()} training groups, \{test.len()} test groups");
+  FilterNet f = FilterNet.create(d, hidden);
+  Adam opt = Adam.create(0.001);
+  i32[] order = i32[].filled(train.len(), 0);
+  for (i32 i = 0; i < order.len(); i++) { order[i] = i; }
+  i32 per = 16;
+  for (i32 e = 0; e < epochs; e++) {
+    for (i32 i = order.len() - 1; i > 0; i--) {
+      i32 j = (d.random.uniform() * ((i + 1) as f64)) as~ i32;
+      i32 t = order[i];
+      order[i] = order[j];
+      order[j] = t;
+    }
+    f64 total = 0.0;
+    i32 steps = 0;
+    for (i32 at = 0; at + per <= order.len(); at += per) {
+      // A batch of groups, each centred: the filter learns how a placement compares with its piece's others.
+      Vec<Board> bs = Vec.create();
+      Vec<f32> ys = Vec.create();
+      Vec<i32> sizes = Vec.create();
+      for (i32 k = at; k < at + per; k++) {
+        Group g = train[order[k]];
+        f64 mean = 0.0;
+        for (i32 i = 0; i < g.boards.len(); i++) { mean += ((g.targets[i] as f64) - (g.boards[i].score as f64)); }
+        mean = mean / (g.boards.len() as f64);
+        for (i32 i = 0; i < g.boards.len(); i++) {
+          bs.push(g.boards[i]);
+          // The target less the score, which `ranks` adds back: what the network itself must say, centred.
+          ys.push((((g.targets[i] as f64) - (g.boards[i].score as f64) - mean) / 1000.0) as~ f32);
+        }
+        sizes.push(g.boards.len());
+      }
+      i32 n = bs.len();
+      // Which group each board is in, and each group's mean, as matrices: the prediction is centred as the target is.
+      f32[] member = f32[].filled(n * per, 0.0);
+      f32[] avg = f32[].filled(per * n, 0.0);
+      i32 o = 0;
+      i32[] sz = sizes.toArray();
+      for (i32 q = 0; q < per; q++) {
+        for (i32 i = 0; i < sz[q]; i++) {
+          member[(o + i) * per + q] = 1.0;
+          avg[q * n + o + i] = 1.0 / (sz[q] as~ f32);
+        }
+        o += sz[q];
+      }
+      Board[] boards = bs.toArray();
+      Tensor y = d.tensor(ys.toArray(), [n, 1]);
+      Tensor mem = d.tensor(member, [n, per]);
+      Tensor m = d.tensor(avg, [per, n]);
+      Tensor loss = opt.minimize(() => {
+        Tensor p = f.forward(d, boards);
+        return p.sub(mem.matmul(m.matmul(p))).squaredDifference(y).mean([], false);
+      }, f.params);
+      total += loss.item() as f64;
+      steps++;
+      loss.dispose();
+      y.dispose();
+      m.dispose();
+      mem.dispose();
+    }
+    sys.log("epoch \{e + 1}: training error \{((total / (steps as f64)).sqrt() * 1000.0).round()} points");
+  }
+
+  // The screen: recall and points lost at k = 1 … 8, on the held-out groups.
+  i32[] hits = i32[].filled(9, 0);
+  f64[] lost = f64[].filled(9, 0.0);
+  f64 sizes = 0.0;
+  for (Group g in test) {
+    f32[] fr = f.ranks(d, g.boards);
+    i32 best = argmax(g.targets);
+    sizes += g.boards.len() as f64;
+    bool[] taken = bool[].filled(g.boards.len(), false);
+    f64 got = -1.0e30;
+    bool hit = false;
+    for (i32 k = 1; k <= 8; k++) {
+      if (k <= g.boards.len()) {
+        i32 top = -1;
+        for (i32 i = 0; i < g.boards.len(); i++) { if (!taken[i] && (top < 0 || fr[i] > fr[top])) { top = i; } }
+        taken[top] = true;
+        if (top == best) { hit = true; }
+        if ((g.targets[top] as f64) > got) { got = g.targets[top] as f64; }
+      }
+      if (hit) { hits[k]++; }
+      lost[k] += (g.targets[best] as f64) - got;
+    }
+  }
+  f64 n = test.len() as f64;
+  sys.log("held out: \{test.len()} groups of \{(sizes / n)} placements on average");
+  for (i32 k = 1; k <= 8; k++) {
+    sys.log("top \{k}: best kept \{((hits[k] as f64) * 100.0 / n)}%, points lost \{lost[k] / n} on average");
+  }
+  auto w = await sys.writeFile(a[1], saveWeightsNow(f.params));
+  if (w.isErr()) { sys.log("filter: " + w.err()!); return 1; }
+  return 0;
+}

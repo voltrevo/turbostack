@@ -1,6 +1,6 @@
 // Play games with a model and report how it scores — the one number this project is measured by.
 //
-//     wac run --allow-read tools/evaluate.wac legacy|small|standard|large|dual|dual1 <weights> <from> <to> [lookahead [rule]]
+//     wac run --allow-read tools/evaluate.wac legacy|small|standard|large|dual|dual1 <weights> <from> <to> [lookahead [rule [filter.weights hidden keep]]]
 //
 // With `lookahead` k, the player — either model — looks one piece further for its k best placements: each is valued as
 // what it scores plus the mean, over the seven pieces that could come next, of the best that piece then allows. A
@@ -18,11 +18,12 @@
 import { Sys } from "std";
 import { Device, Tensor, loadWeights } from "tensor";
 import { Board } from "../src/board.wac";
-import { RULE_MEAN, RULE_MIN, RULE_SD, RULE_WORST, lookaheadBy } from "../src/lookahead.wac";
+import { RULE_MEAN, RULE_MIN, RULE_SD, RULE_WORST, lookaheadWith } from "../src/lookahead.wac";
+import { FilterNet } from "../src/filter.wac";
 import { Evaluator, GameResult, Pieces, play } from "../src/game.wac";
 import { LegacyScoreModel } from "../src/legacy.wac";
 
-import { deepLook, finalScoresOf } from "../src/selfplay.wac";
+import { deepLookWith, finalScoresOf } from "../src/selfplay.wac";
 import { ValueConfig, ValueNet } from "../src/value.wac";
 import { parseInt, splitOn } from "../src/text.wac";
 
@@ -42,6 +43,18 @@ export async i32 main(Sys sys) {
   if (ruleArg.len() > 2 && ruleArg.slice(0, 2) == "sd") {
     rule = RULE_SD;
     param = (parseInt(ruleArg.slice(2, ruleArg.len())) as f64) / 10.0;
+  }
+  // A cheap filter at lookahead's deepest level: `<filter.weights> <hidden> <keep>` after the rule.
+  i32 keep = args.len() > 8 ? parseInt(args[8]) : 0;
+  fn<f32[](Board[])> filter = (Board[] bs) => f32[]();
+  if (keep > 0) {
+    FilterNet f = FilterNet.create(d, parseInt(args[7]));
+    auto fl = loadWeights(f.params, (await sys.readFile(args[6])).orElse(u8[]()));
+    if (fl.isErr()) {
+      sys.log("cannot load the filter: " + fl.err()!);
+      return 1;
+    }
+    filter = (Board[] bs) => f.ranks(d, bs);
   }
   if (ruleArg.len() > 5 && ruleArg.slice(0, 5) == "worst") {
     rule = RULE_WORST;
@@ -79,13 +92,13 @@ export async i32 main(Sys sys) {
     i32 second = net.config.heads > 1 ? 1 : 0;
     finalScore = (Board[] bs) => finalScoresOf(d, net, bs, first);
     deeper = (Board[] bs) => finalScoresOf(d, net, bs, second);
-    deep = (Board[] bs) => deepLook(d, net, bs, look, look2);
+    deep = (Board[] bs) => deepLookWith(d, net, bs, look, look2, filter, keep);
   }
   Evaluator e = Evaluator((Board[] bs) => {
     f32[] v = finalScore(bs);
     if (look == 0) { return v; }
     if (look2 > 0) { return deep(bs); }
-    return lookaheadBy(bs, v, look, deeper, rule, param);
+    return lookaheadWith(bs, v, look, deeper, rule, param, filter, keep);
   });
   i32 from = parseInt(args[2]);
   i32 to = parseInt(args[3]);

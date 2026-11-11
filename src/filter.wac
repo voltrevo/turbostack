@@ -1,0 +1,61 @@
+// A cheap filter for the deepest level of lookahead: a tiny network that ranks one piece's placements, so the full
+// network need only value the few it ranks highest.
+//
+// The full network spends ~190,000 multiply-adds a board, most in its convolutions; this one reads the 200 cells and
+// the lines remaining straight into one small hidden layer, ~6,500. It is taught to put a piece's placements in the
+// order the full network's lookahead output puts them, so only the differences within a piece's placements matter.
+
+import { Device, Tensor, Variable, glorotUniform } from "tensor";
+import { Board } from "./board.wac";
+
+static i32 INPUTS = 203;
+
+export struct FilterNet {
+  i32 hidden;
+  Variable[] params;
+
+  FilterNet create(Device d, i32 hidden) {
+    Variable[] ps = [
+      d.variable(glorotUniform(d, [INPUTS, hidden], INPUTS, hidden), "filter/dense1/kernel"),
+      d.variable(d.zeros([hidden]), "filter/dense1/bias"),
+      d.variable(d.zeros([hidden, 1]), "filter/out/kernel"),
+      d.variable(d.zeros([1]), "filter/out/bias"),
+    ];
+    return FilterNet(hidden, ps);
+  }
+
+  /** The boards as the filter reads them: 200 cells, then the lines remaining as the value network sees them. */
+  Tensor inputs(this, Device d, Board[] boards) {
+    f32[] x = f32[].filled(boards.len() * INPUTS, 0.0);
+    for (i32 k = 0; k < boards.len(); k++) {
+      Board b = boards[k];
+      i32 o = k * INPUTS;
+      for (i32 i = 0; i < 20; i++) {
+        i32 r = b.rows[i];
+        if (r == 0) { continue; }
+        for (i32 j = 0; j < 10; j++) { if ((r & (1 << (9 - j))) != 0) { x[o + i * 10 + j] = 1.0; } }
+      }
+      i32 l = b.linesRemaining();
+      x[o + 200] = (l as~ f32) / 130.0;
+      x[o + 201] = ((l < 10 ? l : 10) as~ f32) / 10.0;
+      x[o + 202] = l <= 4 ? 1.0 : 0.0;
+    }
+    return d.tensor(x, [boards.len(), INPUTS]);
+  }
+
+  /** Each board's value, `[n, 1]`, in thousands of points; only its order within a piece's placements means anything. */
+  Tensor forward(this, Device d, Board[] boards) {
+    Variable[] p = this.params;
+    return this.inputs(d, boards).matmul(p[0]).add(p[1]).leakyRelu(0.01).matmul(p[2]).add(p[3]);
+  }
+
+  /** Each board's score plus the filter's value of it, in points: what to rank a piece's placements by. */
+  f32[] ranks(this, Device d, Board[] boards) {
+    if (boards.len() == 0) { return f32[](); }
+    Tensor t = d.tidy(() => this.forward(d, boards));
+    f32[] v = t.valuesNow();
+    t.dispose();
+    for (i32 k = 0; k < boards.len(); k++) { v[k] = (((v[k] as f64) * 1000.0) + (boards[k].score as f64)) as~ f32; }
+    return v;
+  }
+}
