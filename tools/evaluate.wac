@@ -1,6 +1,6 @@
 // Play games with a model and report how it scores — the one number this project is measured by.
 //
-//     wac run --allow-read tools/evaluate.wac legacy|small|standard|large|dual|dual1 <weights> <from> <to> [lookahead]
+//     wac run --allow-read tools/evaluate.wac legacy|small|standard|large|dual|dual1 <weights> <from> <to> [lookahead [rule]]
 //
 // With `lookahead` k, the player — either model — looks one piece further for its k best placements: each is valued as
 // what it scores plus the mean, over the seven pieces that could come next, of the best that piece then allows. A
@@ -18,7 +18,7 @@
 import { Sys } from "std";
 import { Device, Tensor, loadWeights } from "tensor";
 import { Board } from "../src/board.wac";
-import { lookahead } from "../src/lookahead.wac";
+import { RULE_MEAN, RULE_MIN, RULE_SD, RULE_WORST, lookaheadBy } from "../src/lookahead.wac";
 import { Evaluator, GameResult, Pieces, play } from "../src/game.wac";
 import { LegacyScoreModel } from "../src/legacy.wac";
 
@@ -33,6 +33,20 @@ export async i32 main(Sys sys) {
   string[] lookArg = args.len() > 4 ? splitOn(args[4], 58 as u8) : ["0"];
   i32 look = parseInt(lookArg[0]);
   i32 look2 = lookArg.len() > 1 ? parseInt(lookArg[1]) : 0;
+  // How one-piece lookahead combines the seven pieces' outcomes: `mean` (the default), `min`, `sd<x>` (the mean less x
+  // standard deviations, x in tenths: sd5 is 0.5) or `worst<k>` (the mean of the k worst).
+  string ruleArg = args.len() > 5 ? args[5] : "mean";
+  i32 rule = RULE_MEAN;
+  f64 param = 0.0;
+  if (ruleArg == "min") { rule = RULE_MIN; }
+  if (ruleArg.len() > 2 && ruleArg.slice(0, 2) == "sd") {
+    rule = RULE_SD;
+    param = (parseInt(ruleArg.slice(2, ruleArg.len())) as f64) / 10.0;
+  }
+  if (ruleArg.len() > 5 && ruleArg.slice(0, 5) == "worst") {
+    rule = RULE_WORST;
+    param = parseInt(ruleArg.slice(5, ruleArg.len())) as f64;
+  }
   // The two-piece player, for `dual` with `k:k2`.
   fn<f32[](Board[])> deep = (Board[] bs) => f32[]();
   // Each model as one thing: an estimate of the game's final score from a board. The old model is one already; the
@@ -71,7 +85,7 @@ export async i32 main(Sys sys) {
     f32[] v = finalScore(bs);
     if (look == 0) { return v; }
     if (look2 > 0) { return deep(bs); }
-    return lookahead(bs, v, look, deeper);
+    return lookaheadBy(bs, v, look, deeper, rule, param);
   });
   i32 from = parseInt(args[2]);
   i32 to = parseInt(args[3]);

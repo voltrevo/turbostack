@@ -11,6 +11,17 @@ import { Board, PIECE_COUNT } from "./board.wac";
  * piece with nowhere to go. The rest are put below them. Every board a piece deeper is valued in one batch.
  */
 export f32[] lookahead(Board[] choices, f32[] v, i32 look, fn<f32[](Board[])> finalScore) {
+  return lookaheadBy(choices, v, look, finalScore, 0, 0.0);
+}
+
+/** How the seven outcomes are combined: their mean (the default), their worst, mean less `param` standard deviations, or the mean of the worst `param`. */
+export static i32 RULE_MEAN = 0;
+export static i32 RULE_MIN = 1;
+export static i32 RULE_SD = 2;
+export static i32 RULE_WORST = 3;
+
+/** `lookahead`, with the seven outcomes combined by `rule` (`RULE_…`) instead of their mean. */
+export f32[] lookaheadBy(Board[] choices, f32[] v, i32 look, fn<f32[](Board[])> finalScore, i32 rule, f64 param) {
   i32 k = look < choices.len() ? look : choices.len();
   i32[] top = i32[].filled(k, 0);
   bool[] taken = bool[].filled(choices.len(), false);
@@ -41,7 +52,7 @@ export f32[] lookahead(Board[] choices, f32[] v, i32 look, fn<f32[](Board[])> fi
       out[top[t]] = c.score as~ f32;
       continue;
     }
-    f64 total = 0.0;
+    f64[] outcome = f64[].filled(PIECE_COUNT, 0.0);
     for (i32 p = 0; p < PIECE_COUNT; p++) {
       i32 n = counts[t * PIECE_COUNT + p];
       // A piece with nowhere to go ends the game where it stands.
@@ -51,10 +62,42 @@ export f32[] lookahead(Board[] choices, f32[] v, i32 look, fn<f32[](Board[])> fi
         f64 q = x.finished ? (x.score as f64) : (dv[at + j] as f64);
         if (q > best) { best = q; }
       }
-      total += best;
+      outcome[p] = best;
       at += n;
     }
-    out[top[t]] = (total / (PIECE_COUNT as f64)) as~ f32;
+    out[top[t]] = combine(outcome, rule, param) as~ f32;
   }
   return out;
+}
+
+/** The seven outcomes as one number, by `rule`. */
+f64 combine(f64[] o, i32 rule, f64 param) {
+  i32 n = o.len();
+  f64 total = 0.0;
+  f64 low = o[0];
+  for (f64 x in o) {
+    total += x;
+    if (x < low) { low = x; }
+  }
+  f64 mean = total / (n as f64);
+  if (rule == RULE_MIN) { return low; }
+  if (rule == RULE_SD) {
+    f64 ss = 0.0;
+    for (f64 x in o) { ss += (x - mean) * (x - mean); }
+    return mean - param * (ss / (n as f64)).sqrt();
+  }
+  if (rule == RULE_WORST) {
+    // The mean of the `param` lowest, by repeatedly taking the lowest not yet taken.
+    i32 k = param as~ i32;
+    bool[] taken = bool[].filled(n, false);
+    f64 sum = 0.0;
+    for (i32 t = 0; t < k; t++) {
+      i32 lo = -1;
+      for (i32 i = 0; i < n; i++) { if (!taken[i] && (lo < 0 || o[i] < o[lo])) { lo = i; } }
+      taken[lo] = true;
+      sum += o[lo];
+    }
+    return sum / (k as f64);
+  }
+  return mean;
 }
