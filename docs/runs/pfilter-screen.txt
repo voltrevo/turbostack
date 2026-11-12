@@ -1,0 +1,48 @@
+# T=0, epoch 1, held-out seeds 9001-9004
+28602 groups, 1339 whose best placement is a tetris
+threshold 0.9: 3 kept a group, regret mean 3.7, p99 120, tetris replies missed 7 of 1339
+threshold 0.95: 3.6 kept a group, regret mean 1.8, p99 57, tetris replies missed 4 of 1339
+threshold 0.99: 5.3 kept a group, regret mean 0.4, p99 0, tetris replies missed 0 of 1339
+threshold 0.995: 6.2 kept a group, regret mean 0.3, p99 0, tetris replies missed 0 of 1339
+threshold 0.999: 8.7 kept a group, regret mean 0.1, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.9: 3.4 kept a group, regret mean 2.6, p99 81, tetris replies missed 0 of 1339
+keep clears, threshold 0.95: 4 kept a group, regret mean 1.2, p99 27, tetris replies missed 0 of 1339
+keep clears, threshold 0.99: 5.5 kept a group, regret mean 0.3, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.995: 6.4 kept a group, regret mean 0.2, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.999: 8.7 kept a group, regret mean 0.1, p99 0, tetris replies missed 0 of 1339
+# T=50, epoch 1, held-out seeds 9001-9004
+28602 groups, 1339 whose best placement is a tetris
+threshold 0.9: 3.4 kept a group, regret mean 2.5, p99 85, tetris replies missed 12 of 1339
+threshold 0.95: 4.1 kept a group, regret mean 1, p99 9, tetris replies missed 1 of 1339
+threshold 0.99: 6.4 kept a group, regret mean 0.2, p99 0, tetris replies missed 0 of 1339
+threshold 0.995: 7.5 kept a group, regret mean 0.1, p99 0, tetris replies missed 0 of 1339
+threshold 0.999: 10.6 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.9: 3.8 kept a group, regret mean 1.6, p99 49, tetris replies missed 0 of 1339
+keep clears, threshold 0.95: 4.5 kept a group, regret mean 0.7, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.99: 6.5 kept a group, regret mean 0.2, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.995: 7.6 kept a group, regret mean 0.1, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.999: 10.6 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+# T=150, epoch 1, held-out seeds 9001-9004
+28602 groups, 1339 whose best placement is a tetris
+threshold 0.9: 6.4 kept a group, regret mean 0.4, p99 0, tetris replies missed 0 of 1339
+threshold 0.95: 8.4 kept a group, regret mean 0.2, p99 0, tetris replies missed 0 of 1339
+threshold 0.99: 13.4 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+threshold 0.995: 15.3 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+threshold 0.999: 18.8 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.9: 6.5 kept a group, regret mean 0.3, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.95: 8.4 kept a group, regret mean 0.2, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.99: 13.4 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.995: 15.3 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.999: 18.8 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+# T=400, epoch 1, held-out seeds 9001-9004
+28602 groups, 1339 whose best placement is a tetris
+threshold 0.9: 14.7 kept a group, regret mean 0, p99 0, tetris replies missed 1 of 1339
+threshold 0.95: 17.5 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+threshold 0.99: 21.3 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+threshold 0.995: 22.1 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+threshold 0.999: 23 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.9: 14.7 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.95: 17.5 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.99: 21.3 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.995: 22.1 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339
+keep clears, threshold 0.999: 23 kept a group, regret mean 0, p99 0, tetris replies missed 0 of 1339

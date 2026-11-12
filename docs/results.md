@@ -221,3 +221,46 @@ Paired against the unchanged network's pair search on held-out games 1001–1040
 +136 ± 433, its held-out error rising (109 → 232). Round 1 on 40 fresh games (1041–1080) was −91 ± 345; over all 80,
 +383 ± 270, and the first 40 are the ones that picked it. So the pilot stopped there: the unchanged network serves the
 search as well as one recalibrated this way.
+
+## A probability filter for the deepest level (branch `pfilter`)
+
+A second filter, redesigned to fix the first one's failure (it cut the I-piece replies that finish a tetris). Instead
+of predicting each placement's value, it is a classifier over the placements of one piece on one board — a group:
+one logit per placement, softmax over the group, trained by cross-entropy against the full network's choice
+(T = 0), or against a softmax of the full network's values at temperature T. Its input is two planes — the board, and
+a mask of the new piece's cells — plus the lines-remaining features, through a 4×3 convolution (6 channels) and a
+16-unit hidden layer. At play time it cuts only the deepest level of one-piece lookahead: for each of the 7 pieces
+after each of the top 3 candidates, it keeps placements in order of probability until their cumulative probability
+reaches a threshold, plus any board that ends the game; optionally it never cuts a placement that clears lines.
+`tools/pfilter.wac` (`gen`, `fit`, `screen`, `play`); weights `models/pfilter-t0.weights`, `models/pfilter-t50.weights`.
+
+Trained on 274,050 groups from 40 greedy games (seeds 5002–5041), one epoch (a 4-way run was lost after epoch 1, and
+epoch 1 already screened well). **Screen** on held-out seeds 9001–9004: 28,602 groups of ~23 placements, 1,339 whose
+best placement is a tetris. Regret is the full network's value of the best placement less that of the best one kept
+(`docs/runs/pfilter-screen.txt`):
+
+| Filter | Kept a group | Mean regret | p99 regret | Tetris replies missed |
+|---|---|---|---|---|
+| T = 0, 0.95 | 3.6 | 1.8 | 57 | 4 of 1,339 |
+| **T = 0, 0.99** | **5.3** | **0.4** | **0** | **0** |
+| T = 0, 0.995 | 6.2 | 0.3 | 0 | 0 |
+| T = 50, 0.95, never cut clears | 4.5 | 0.7 | 0 | 0 |
+| T = 50, 0.99 | 6.4 | 0.2 | 0 | 0 |
+| T = 150, 0.99 | 13.4 | 0 | 0 | 0 |
+| T = 400, 0.99 | 21.3 | 0 | 0 | 0 |
+
+T = 150 and 400 are too flat to cut much. **Whole games 1–200**, paired against unfiltered one-piece lookahead (28,590),
+all under the same 4-way load (`docs/runs/pfilter-*-1-200.txt`; columns: seed, score, positions, lines, tetrises,
+kept a group, ms a move):
+
+| Player | Mean score | Against unfiltered | Same game | Tetrises a game | ms a move |
+|---|---|---|---|---|---|
+| unfiltered one-piece lookahead | 28,590 | — | — | 22.10 | 165 |
+| **T = 0, 0.99** | **28,439** | **−151 ± 147** (17 higher, 21 lower) | 162 of 200 | 21.97 | **88** |
+| T = 50, 0.95, never cut clears | 28,296 | −294 ± 180 (31 higher, 35 lower) | 134 of 200 | 21.84 | 83 |
+| old filter, keep 6 (above) | 27,822 | −768 ± 289 | | 21.5 | 73 |
+
+The unfiltered time is 12 games' wall clock (`docs/runs/pfilter-unfiltered-timing-1-12.txt`, process start
+included, a few ms a move); the filtered times are measured inside the game. **T = 0 at 0.99 plays the same game as
+unfiltered lookahead in 162 of 200, is statistically indistinguishable in score (−151 ± 147, about one standard
+error), and takes 1.9 times less time a move.** It meets the bar for the duel page; it has not been switched.
