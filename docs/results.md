@@ -172,3 +172,30 @@ estimates. They do not. Games 1–~60, paired against the mean (`docs/runs/risk-
 | mean less half a standard deviation | 60 | 27,969 | −1,003 ± 391, higher in 18 |
 
 The more pessimistic the rule, the worse it plays: the network's downside estimates are as good as its others.
+
+## Different rules: seeing the next piece (a ceiling, branch `preview`)
+
+**Not a candidate to replace anything.** Under the standard rules here the player knows only the current piece, which
+models a person realistically: a person commits each piece's placement while it is still in the preview, so does not
+really get the benefit of the piece after. These are different rules, where the next piece is known, and how much they
+are worth is a ceiling, not a win.
+
+**The pair search**: at each move, every placement of the current piece and, after each, every placement of the
+next — about 23 × 23 boards — each valued as the points of both placements plus the ordinary network's value of the
+board left (the network unchanged, told nothing of the pieces). The current piece goes where the best pair puts it;
+the next piece is reconsidered on the following move, with the piece after it in view.
+`tools/preview.wac pairs models/self-taught-dual.weights <from> <to> <output>`. About 162 ms a move, the cost of
+one-piece lookahead.
+
+Games 1–200, the same pieces (`docs/runs/preview-pairs-h*-1-200.txt`):
+
+| Next piece known (different rules) | Mean score | Against one-piece lookahead (28,590) | Against two-piece lookahead (29,008) |
+|---|---|---|---|
+| pair search, leaves by the greedy output | **31,921** | +3,331 ± 263, higher in 172 of 200 | +2,913 ± 270, higher in 166 |
+| pair search, leaves by the lookahead output | 31,914 | +3,324 ± 273, higher in 175 | +2,906 ± 281, higher in 167 |
+
+The two outputs come to the same (+7 ± 156). It finishes 199 of the 200 games and makes 25.3 tetrises a game.
+
+A first design gave the network the next piece as an input, a one-hot of seven, and trained it on its own play with
+the preview; over 12 rounds its greedy play did not improve (25,420 → 24,596 on games 1001–1100), though it learned to
+tell the pieces apart. The search alone, with the network as it is, is where the preview's worth is.
