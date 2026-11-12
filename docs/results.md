@@ -117,18 +117,41 @@ half the learning rate it held at about 150, and after 16 iterations in all it w
 
 `deepLook` takes the 3 best placements by the greedy output and values each as its points plus, averaged over the
 seven next pieces, the best that one-piece lookahead (3 candidates, second output at the leaves) can then reach: the
-same search as the training target. It is an option: `tools/evaluate.wac dual models/self-taught-dual.weights 1 49 3:2`.
-It costs about 14 times one-piece lookahead, roughly 2.5 seconds a move on one CPU core (14 minutes a game).
+same search as the training target. It is an option: `tools/evaluate.wac dual models/self-taught-dual.weights 1 200 3:2`.
+It values about 7,300 boards a move, 14 times one-piece lookahead: roughly 2.5 seconds a move on one core. Finding
+the placements is a small part of that, ~13 µs a piece; nearly all of it is the network.
 
-Paired with the same pieces, games 1–49 and then the run stopped part-way at 138 of games 1–200
-(`docs/runs/two-piece-games.txt`; `sh tools/resume-two-piece.sh` plays the rest and prints the comparison):
+Games 1–200, paired with the same pieces (`docs/runs/two-piece-games.txt`, against `docs/runs/one-piece-1-200.txt`
+and `docs/runs/turbostack-one-piece-1-200.txt`):
 
-| Games | Two pieces ahead | Against one piece ahead | Against turbostack's model, one piece ahead |
-|---|---|---|---|
-| 1–49 | 29,893 ± 412 | +795 ± 479, higher in 29 of 49 | +2,214 ± 502, higher in 36 |
-| 138 of 1–200 | 29,275 | +506 ± 320, higher in 79 of 138 | +1,830 ± 314, higher in 98 |
+| | Mean score | Two pieces ahead against it |
+|---|---|---|
+| **v10 iteration 36, two pieces ahead** | **29,008** | — |
+| v10 iteration 36, one piece ahead | 28,590 | +418 ± 326, higher in 112 of 200 |
+| turbostack's model, one piece ahead | 27,331 | +1,677 ± 285, higher in 144 of 200 |
 
-So far it is probably better than one piece ahead, by about 500 (1.6 standard errors), at 14 times the cost: not a
-clear win, so it is not on the duel page. Most of its ~2.7 s a move is the network valuing ~7,300 boards; finding the
-placements is ~13 µs a piece. A cheap filter network at the deepest level, and other ways to combine the seven
-pieces' outcomes than their mean (branch `risk`: `tools/evaluate.wac … 3 min|sd5|sd10|worst3`), are untested next steps.
+The difference shrank as games came in — +795 ± 479 after 49, +506 ± 320 after 138 — and at 1.3 standard errors it is
+not a clear win for 14 times the cost, so it is not on the duel page.
+
+## A cheap filter for the deepest level (branch `filter`)
+
+Nearly all of lookahead's work is valuing every placement of every next piece, only to take the best of each piece's
+~23. A tiny network — the 200 cells and lines remaining, 128 hidden units, ~26,000 multiply-adds a board against the
+full network's ~190,000 — is taught to rank one piece's placements as the second output does (`src/filter.wac`,
+`tools/filter.wac`, `models/filter-128.weights`, from 40 games' 274,000 groups), and only its top few are valued by the
+full network. Measured as how often the filtered search makes the same move as the unfiltered one on positions from
+real games — a measure without the noise of whole games, in which one different move sends the game elsewhere:
+
+| | Same move | Time a move |
+|---|---|---|
+| one-piece lookahead (3 candidates) | — | 164 ms |
+| … filter keeping 2 of each piece's placements | 94.2% | 38 ms |
+| … keeping 4 | 97.3% | 51 ms |
+| … keeping 6 | 98.4% | 64 ms |
+| two-piece lookahead (3:2) | — | 2,243 ms |
+| … keeping 4 | 99.1% | 780 ms |
+| … keeping 6 | 99.7% | 967 ms |
+
+Against two-piece lookahead keeping 6 as the reference, one-piece lookahead makes the same move 94.9% of the time, and
+more candidates do not bring it closer (5 or 8 candidates, filtered: 93–94%): the moves where one and two pieces ahead
+differ are found by looking deeper, not wider.
