@@ -4,6 +4,11 @@
 //     wac run --allow-read --allow-write tools/preview.wac gen <weights> <seed> <boards> <epsilon‰> <look> <out.bin>
 //     wac run --allow-read tools/preview.wac eval <weights> <from> <to> <look>
 //     wac run --allow-read tools/preview.wac pairs <dual.weights> <from> <to> <head>
+//     wac run --allow-read --allow-write tools/preview.wac pgen <dual.weights> <seed> <boards> <epsilon‰> <out.bin>
+//
+// `pgen` plays games by the pair player (leaves by the first output) and writes the boards it passes through, each
+// with its sampled target under those rules (`pairTarget`) for the first output, for `tools/fit.wac dual`: the
+// second output is left as it is.
 //
 // `init` starts it from the dual network's lookahead value, the weights of the new inputs zero: it plays as that
 // network does until it learns what the preview says. `gen` plays games with the preview (`look` 0 greedy, else that
@@ -15,7 +20,7 @@ import { Sys } from "std";
 import { Device, loadWeights, saveWeightsNow } from "tensor";
 import { Board } from "../src/board.wac";
 import { Pieces, argmax } from "../src/game.wac";
-import { pairLook, previewBackup, previewLook } from "../src/preview.wac";
+import { pairLook, pairTarget, previewBackup, previewLook } from "../src/preview.wac";
 import { Examples } from "../src/selfplay.wac";
 import { parseInt } from "../src/text.wac";
 import { ValueConfig, ValueNet } from "../src/value.wac";
@@ -56,11 +61,36 @@ export async i32 main(Sys sys) {
     if (w.isErr()) { sys.log("preview: " + w.err()!); return 1; }
     return 0;
   }
-  bool pairs = a[0] == "pairs";
+  bool pairs = a[0] == "pairs" || a[0] == "pgen";
   ValueNet net = pairs ? ValueNet.create(d, ValueConfig.dual()) : await load(sys, d, a[1]);
   if (pairs) {
     auto pr = loadWeights(net.params, (await sys.readFile(a[1])).orElse(u8[]()));
     if (pr.isErr()) { sys.log("preview: " + pr.err()!); return 1; }
+  }
+  if (a[0] == "pgen") {
+    i32 seed = parseInt(a[2]);
+    i32 want = parseInt(a[3]);
+    f64 epsilon = (parseInt(a[4]) as f64) / 1000.0;
+    Pieces rng = Pieces.seeded(seed * 7919 + 17);
+    Examples ex = Examples.create();
+    while (ex.len() < want) {
+      i32 lines = 1 + ((rng.uniform() * 130.0).floor() as~ i32);
+      if (rng.uniform() < 0.3) { lines = 130; }
+      Board b = Board.empty(lines);
+      i32 next = rng.next();
+      while (!b.finished && ex.len() < want) {
+        i32 p = next;
+        next = rng.next();
+        Board[] cs = b.choices(p);
+        if (cs.len() == 0) { break; }
+        i32 pick = rng.uniform() < epsilon ? (rng.uniform() * (cs.len() as f64)).floor() as~ i32 : argmax(pairLook(d, net, cs, next, 0));
+        b = cs[pick];
+        if (!b.finished) { ex.add(b, pairTarget(d, net, b, rng, 0)); }
+      }
+    }
+    auto w = await sys.writeFile(a[5], ex.encode());
+    if (w.isErr()) { sys.log("preview: " + w.err()!); return 1; }
+    return 0;
   }
   if (a[0] == "gen") {
     i32 seed = parseInt(a[2]);

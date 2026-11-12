@@ -14,6 +14,7 @@
 import { Vec } from "core";
 import { Device } from "tensor";
 import { Board, PIECE_COUNT } from "./board.wac";
+import { Pieces } from "./game.wac";
 import { finalScoresOf } from "./selfplay.wac";
 import { ValueNet } from "./value.wac";
 
@@ -133,4 +134,23 @@ export f32[] pairLook(Device d, ValueNet net, Board[] choices, i32 next, i32 hea
     at += n;
   }
   return out;
+}
+
+/**
+ * A sampled target for a board under the pair player's rules, by `head`: for each of the seven pieces that could
+ * come next, with a piece after it drawn from `rng`, the best pair's final score (`pairLook`), less the board's score;
+ * averaged, a piece with nowhere to go counting nothing more. Seven pairs of the forty-nine, one for each first piece.
+ */
+export f32 pairTarget(Device d, ValueNet net, Board b, Pieces rng, i32 head) {
+  f64 total = 0.0;
+  for (i32 y = 0; y < PIECE_COUNT; y++) {
+    i32 z = rng.next();
+    Board[] cs = b.choices(y);
+    if (cs.len() == 0) { continue; }
+    f32[] v = pairLook(d, net, cs, z, head);
+    f64 best = -1.0e30;
+    for (f32 x in v) { if ((x as f64) > best) { best = x as f64; } }
+    total += best - (b.score as f64);
+  }
+  return (total / (PIECE_COUNT as f64)) as~ f32;
 }
