@@ -1,0 +1,240 @@
+// A filter that predicts which placement the full network will choose: for one piece's placements from one board, a
+// probability each, from a softmax over the group — so a group whose best reply is plain lets few through, and one
+// where the filter is unsure lets more.
+//
+// Each placement is read as two planes — the board it leaves, and the cells the piece was put in, before any rows
+// clear — through a small convolution, then a dense layer with the lines remaining, to one logit.
+
+import { Buf, Vec } from "core";
+import { math } from "core";
+import { Device, Padding, Tensor, Variable, glorotUniform } from "tensor";
+import { Board, Placement } from "./board.wac";
+
+/** One piece's placements from one board, with the full network's estimate of each: what the filter learns from. */
+export struct Group {
+  Board parent;
+  i32 piece;
+  Placement[] placements;
+  Board[] boards;
+  f32[] values;
+
+  Group of(Board parent, i32 piece, f32[] values) {
+    Placement[] ps = parent.placements(piece);
+    Board[] bs = Board[].filled(ps.len(), parent);
+    for (i32 i = 0; i < ps.len(); i++) { bs[i] = parent.after(ps[i]); }
+    return Group(parent, piece, ps, bs, values);
+  }
+}
+
+i32 word(u8[] b, i32 o) {
+  return (b[o] as i32) | ((b[o + 1] as i32) << 8) | ((b[o + 2] as i32) << 16) | ((b[o + 3] as i32) << 24);
+}
+
+/** As bytes, per group: the parent's columns, lines cleared and in the game, score, tetrises, the piece, the count, and the values. */
+export u8[] encodeGroups(Group[] gs) {
+  Buf b = Buf.create();
+  for (Group g in gs) {
+    for (i32 j = 0; j < 10; j++) { b.pushU32(g.parent.cols[j] as@ u32); }
+    b.pushU32(g.parent.linesCleared as@ u32);
+    b.pushU32(g.parent.linesMax as@ u32);
+    b.pushU32(g.parent.score as@ u32);
+    b.pushU32(g.parent.tetrises as@ u32);
+    b.pushU32(g.piece as@ u32);
+    b.pushU32(g.values.len() as@ u32);
+    for (f32 v in g.values) { b.pushU32(f32.toBits(v)); }
+  }
+  return b.bytes();
+}
+
+export Group[] decodeGroups(u8[] bytes) {
+  Vec<Group> out = Vec.create();
+  i32 at = 0;
+  while (at + 16 * 4 <= bytes.len()) {
+    Board p = Board.empty(word(bytes, at + 44));
+    for (i32 j = 0; j < 10; j++) {
+      i32 c = word(bytes, at + 4 * j);
+      for (i32 i = 0; i < 20; i++) { if ((c & (1 << (19 - i))) != 0) { p.flip(i, j); } }
+    }
+    p.linesCleared = word(bytes, at + 40);
+    p.score = word(bytes, at + 48);
+    p.tetrises = word(bytes, at + 52);
+    i32 piece = word(bytes, at + 56);
+    i32 n = word(bytes, at + 60);
+    at += 64;
+    f32[] vs = f32[].filled(n, 0.0);
+    for (i32 i = 0; i < n; i++) { vs[i] = f32.fromBits(word(bytes, at + 4 * i) as@ u32); }
+    at += 4 * n;
+    out.push(Group.of(p, piece, vs));
+  }
+  return out.toArray();
+}
+
+export struct ProbFilter {
+  i32 channels;
+  i32 hidden;
+  Variable[] params;
+
+  ProbFilter create(Device d, i32 channels, i32 hidden) {
+    i32 flat = 17 * 8 * channels + 3;
+    Variable[] ps = [
+      d.variable(glorotUniform(d, [4, 3, 2, channels], 24, 12 * channels), "pfilter/conv/kernel"),
+      d.variable(d.zeros([channels]), "pfilter/conv/bias"),
+      d.variable(glorotUniform(d, [flat, hidden], flat, hidden), "pfilter/dense/kernel"),
+      d.variable(d.zeros([hidden]), "pfilter/dense/bias"),
+      d.variable(d.zeros([hidden, 1]), "pfilter/out/kernel"),
+      d.variable(d.zeros([1]), "pfilter/out/bias"),
+    ];
+    return ProbFilter(channels, hidden, ps);
+  }
+
+  /** Each placement's logit, `[n, 1]`: `boards[i]` the board `placements[i]` leaves. */
+  Tensor logits(this, Device d, Board[] boards, Placement[] placements) {
+    i32 n = boards.len();
+    f32[] x = f32[].filled(n * 400, 0.0);
+    f32[] e = f32[].filled(n * 3, 0.0);
+    for (i32 k = 0; k < n; k++) {
+      Board b = boards[k];
+      i32 o = k * 400;
+      for (i32 i = 0; i < 20; i++) {
+        i32 r = b.rows[i];
+        if (r == 0) { continue; }
+        for (i32 j = 0; j < 10; j++) { if ((r & (1 << (9 - j))) != 0) { x[o + (i * 10 + j) * 2] = 1.0; } }
+      }
+      Placement p = placements[k];
+      for (i32 c = 0; c < 16; c++) {
+        if ((p.grid & (1 << (15 - c))) == 0) { continue; }
+        i32 i = p.row + c / 4;
+        i32 j = p.col + c % 4;
+        if (i >= 0 && i < 20 && j >= 0 && j < 10) { x[o + (i * 10 + j) * 2 + 1] = 1.0; }
+      }
+      i32 l = b.linesRemaining();
+      e[k * 3] = (l as~ f32) / 130.0;
+      e[k * 3 + 1] = ((l < 10 ? l : 10) as~ f32) / 10.0;
+      e[k * 3 + 2] = l <= 4 ? 1.0 : 0.0;
+    }
+    Variable[] w = this.params;
+    Tensor h = d.tensor(x, [n, 20, 10, 2]).conv2d(w[0], [1, 1], Padding.Valid, [1, 1]).add(w[1]).leakyRelu(0.01);
+    Tensor j = h.reshape([n, 17 * 8 * this.channels]).concat([d.tensor(e, [n, 3])], 1);
+    return j.matmul(w[2]).add(w[3]).leakyRelu(0.01).matmul(w[4]).add(w[5]);
+  }
+
+  /** The probability of each placement of each group, softmax within the group: `counts[g]` placements each, in order. */
+  f32[] probabilities(this, Device d, Board[] boards, Placement[] placements, i32[] counts) {
+    if (boards.len() == 0) { return f32[](); }
+    Tensor t = d.tidy(() => this.logits(d, boards, placements));
+    f32[] z = t.valuesNow();
+    t.dispose();
+    i32 at = 0;
+    for (i32 n in counts) {
+      f64 hi = -1.0e30;
+      for (i32 i = 0; i < n; i++) { if ((z[at + i] as f64) > hi) { hi = z[at + i] as f64; } }
+      f64 sum = 0.0;
+      for (i32 i = 0; i < n; i++) { sum += math.exp((z[at + i] as f64) - hi); }
+      for (i32 i = 0; i < n; i++) { z[at + i] = (math.exp((z[at + i] as f64) - hi) / sum) as~ f32; }
+      at += n;
+    }
+    return z;
+  }
+}
+
+/**
+ * Which placements of each group to keep: in order of probability until their sum reaches `threshold`, and every one
+ * that ends the game — and, with `clears`, every one that clears a line.
+ */
+export bool[] keepByProbability(f32[] probs, Board[] boards, Board[] parents, i32[] counts, f64 threshold, bool clears) {
+  bool[] keep = bool[].filled(probs.len(), false);
+  i32 at = 0;
+  for (i32 g = 0; g < counts.len(); g++) {
+    i32 n = counts[g];
+    bool[] used = bool[].filled(n, false);
+    f64 sum = 0.0;
+    while (sum < threshold) {
+      i32 b = -1;
+      for (i32 i = 0; i < n; i++) { if (!used[i] && (b < 0 || probs[at + i] > probs[at + b])) { b = i; } }
+      if (b < 0) { break; }
+      used[b] = true;
+      keep[at + b] = true;
+      sum += probs[at + b] as f64;
+    }
+    for (i32 i = 0; i < n; i++) {
+      Board x = boards[at + i];
+      if (x.finished || (clears && x.linesCleared > parents[g].linesCleared)) { keep[at + i] = true; }
+    }
+    at += n;
+  }
+  return keep;
+}
+
+/** How much a filtered lookahead let through: groups seen and boards kept, for the boards-kept-a-group figure. */
+export struct Tally {
+  i64 groups;
+  i64 kept;
+}
+
+/**
+ * One-piece lookahead (as `lookahead`, the mean over the seven pieces) with the probability filter at its deepest
+ * level: of each next piece's placements, only those `keepByProbability` keeps are valued by `finalScore`.
+ */
+export f32[] probLookahead(Device d, Board[] choices, f32[] v, i32 look, fn<f32[](Board[])> finalScore, ProbFilter f,
+                           f64 threshold, bool clears, Tally tally) {
+  i32 k = look < choices.len() ? look : choices.len();
+  i32[] top = i32[].filled(k, 0);
+  bool[] taken = bool[].filled(choices.len(), false);
+  for (i32 t = 0; t < k; t++) {
+    i32 best = -1;
+    for (i32 i = 0; i < choices.len(); i++) { if (!taken[i] && (best < 0 || v[i] > v[best])) { best = i; } }
+    taken[best] = true;
+    top[t] = best;
+  }
+  Vec<Board> found = Vec.create();
+  Vec<Placement> places = Vec.create();
+  Vec<Board> parents = Vec.create();
+  i32[] counts = i32[].filled(k * 7, 0);
+  for (i32 t = 0; t < k; t++) {
+    Board c = choices[top[t]];
+    for (i32 p = 0; p < 7; p++) {
+      parents.push(c);
+      if (c.finished) { continue; }
+      Placement[] ps = c.placements(p);
+      counts[t * 7 + p] = ps.len();
+      for (Placement pl in ps) {
+        places.push(pl);
+        found.push(c.after(pl));
+      }
+    }
+  }
+  Board[] every = found.toArray();
+  f32[] probs = f.probabilities(d, every, places.toArray(), counts);
+  bool[] keep = keepByProbability(probs, every, parents.toArray(), counts, threshold, clears);
+  Vec<Board> deeper = Vec.create();
+  for (i32 i = 0; i < every.len(); i++) { if (keep[i]) { deeper.push(every[i]); } }
+  f32[] dv = deeper.len() > 0 ? finalScore(deeper.toArray()) : f32[]();
+  f32[] out = f32[].filled(choices.len(), -1.0e30);
+  i32 at = 0;
+  i32 di = 0;
+  for (i32 t = 0; t < k; t++) {
+    Board c = choices[top[t]];
+    if (c.finished) {
+      out[top[t]] = c.score as~ f32;
+      continue;
+    }
+    f64 total = 0.0;
+    for (i32 p = 0; p < 7; p++) {
+      i32 n = counts[t * 7 + p];
+      f64 best = n == 0 ? (c.score as f64) : -1.0e30;
+      tally.groups++;
+      for (i32 j = 0; j < n; j++) {
+        if (!keep[at + j]) { continue; }
+        tally.kept++;
+        Board x = every[at + j];
+        f64 q = x.finished ? (x.score as f64) : (dv[di] as f64);
+        di++;
+        if (q > best) { best = q; }
+      }
+      total += best;
+      at += n;
+    }
+    out[top[t]] = (total / 7.0) as~ f32;
+  }
+  return out;
+}

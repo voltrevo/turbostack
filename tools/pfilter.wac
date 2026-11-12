@@ -1,0 +1,285 @@
+// The probability filter (`src/pfilter.wac`): its data, training, screen and games.
+//
+//     wac run --allow-read --allow-write tools/pfilter.wac gen <dual.weights> <out.bin> <from seed> <to seed>
+//     wac run --allow-read --allow-write tools/pfilter.wac fit <out.weights> <channels> <hidden> <epochs> <T> <groups> <train.bin>...
+//     wac run --allow-read tools/pfilter.wac screen <weights> <channels> <hidden> <test.bin>...
+//     wac run --allow-read tools/pfilter.wac play <dual.weights> <weights> <channels> <hidden> <threshold‰> <clears 0|1> <from> <to>
+//
+// `fit` trains on up to `groups` groups drawn from the files: cross-entropy of the softmax over each group against the
+// full network's choice for `T` 0, or against a softmax of its estimates at temperature `T` points. `screen` reports, for
+// cumulative-probability thresholds, the boards kept a group, the regret — the best estimate less the best kept — as
+// mean and 99th percentile, and how often the best placement is missed when it is a tetris.
+//
+// `gen` plays the games of the seeds greedily by the dual network's first output and, at each move, takes the 3
+// placements one-piece lookahead looks at; each piece's placements from each is a group, with the full network's
+// estimate of each (its second output, as lookahead values them).
+
+import { Sys } from "std";
+import { Adam, Device, Tensor, loadWeights, saveWeightsNow } from "tensor";
+import { Vec, math } from "core";
+import { Board, PIECE_COUNT, Placement } from "../src/board.wac";
+import { Pieces, argmax } from "../src/game.wac";
+import { Group, ProbFilter, Tally, decodeGroups, encodeGroups, keepByProbability, probLookahead } from "../src/pfilter.wac";
+import { finalScoresOf } from "../src/selfplay.wac";
+import { parseInt } from "../src/text.wac";
+import { ValueConfig, ValueNet } from "../src/value.wac";
+
+export async i32 main(Sys sys) {
+  string[] a = sys.args();
+  Device d = Device.cpu();
+  if (a[0] == "gen") {
+    ValueNet net = ValueNet.create(d, ValueConfig.dual());
+    auto r = loadWeights(net.params, (await sys.readFile(a[1])).orElse(u8[]()));
+    if (r.isErr()) { sys.log("pfilter: " + r.err()!); return 1; }
+    Vec<Group> out = Vec.create();
+    for (i32 seed = parseInt(a[3]); seed <= parseInt(a[4]); seed++) {
+      Pieces p = Pieces.seeded(seed);
+      Board b = Board.empty(130);
+      while (!b.finished) {
+        Board[] cs = b.choices(p.next());
+        if (cs.len() == 0) { break; }
+        f32[] v = finalScoresOf(d, net, cs, 0);
+        bool[] taken = bool[].filled(cs.len(), false);
+        for (i32 t = 0; t < 3 && t < cs.len(); t++) {
+          i32 best = -1;
+          for (i32 i = 0; i < cs.len(); i++) { if (!taken[i] && (best < 0 || v[i] > v[best])) { best = i; } }
+          taken[best] = true;
+          if (cs[best].finished) { continue; }
+          for (i32 q = 0; q < PIECE_COUNT; q++) {
+            Board[] g = cs[best].choices(q);
+            if (g.len() < 2) { continue; }
+            f32[] tv = finalScoresOf(d, net, g, 1);
+            for (i32 i = 0; i < g.len(); i++) { if (g[i].finished) { tv[i] = g[i].score as~ f32; } }
+            out.push(Group.of(cs[best], q, tv));
+          }
+        }
+        b = cs[argmax(v)];
+      }
+    }
+    auto w = await sys.writeFile(a[2], encodeGroups(out.toArray()));
+    if (w.isErr()) { sys.log("pfilter: " + w.err()!); return 1; }
+    sys.log("\{out.len()} groups");
+    return 0;
+  }
+  if (a[0] == "fit") { return await fit(sys, d, a); }
+  if (a[0] == "play") { return await playGames(sys, d, a); }
+  if (a[0] == "screen") { return await screen(sys, d, a); }
+  return 1;
+}
+
+async Group[] loadAll(Sys sys, string[] paths) {
+  Vec<Group> all = Vec.create();
+  for (string p in paths) {
+    Group[] gs = decodeGroups((await sys.readFile(p)).orElse(u8[]()));
+    for (Group g in gs) { all.push(g); }
+  }
+  return all.toArray();
+}
+
+/** The target distribution over a group: the choice, or a softmax of the estimates at temperature `t` points. */
+f32[] targetOf(Group g, f64 t) {
+  i32 n = g.values.len();
+  f32[] out = f32[].filled(n, 0.0);
+  i32 best = argmax(g.values);
+  if (t <= 0.0) {
+    out[best] = 1.0;
+    return out;
+  }
+  f64 sum = 0.0;
+  for (i32 i = 0; i < n; i++) { sum += math.exp(((g.values[i] as f64) - (g.values[best] as f64)) / t); }
+  for (i32 i = 0; i < n; i++) { out[i] = (math.exp(((g.values[i] as f64) - (g.values[best] as f64)) / t) / sum) as~ f32; }
+  return out;
+}
+
+async i32 fit(Sys sys, Device d, string[] a) {
+  d.seed(91 as i64);
+  i32 channels = parseInt(a[2]);
+  i32 hidden = parseInt(a[3]);
+  i32 epochs = parseInt(a[4]);
+  f64 temp = parseInt(a[5]) as f64;
+  i32 most = parseInt(a[6]);
+  string[] files = string[].filled(a.len() - 7, "");
+  for (i32 i = 7; i < a.len(); i++) { files[i - 7] = a[i]; }
+  Group[] all = await loadAll(sys, files);
+  i32[] order = i32[].filled(all.len(), 0);
+  for (i32 i = 0; i < order.len(); i++) { order[i] = i; }
+  ProbFilter f = ProbFilter.create(d, channels, hidden);
+  Adam opt = Adam.create(0.001);
+  i32 per = 16;
+  sys.log("\{all.len()} groups; training on up to \{most} an epoch");
+  for (i32 e = 0; e < epochs; e++) {
+    for (i32 i = order.len() - 1; i > 0; i--) {
+      i32 j = (d.random.uniform() * ((i + 1) as f64)) as~ i32;
+      i32 t = order[i];
+      order[i] = order[j];
+      order[j] = t;
+    }
+    i32 use = most < order.len() ? most : order.len();
+    f64 total = 0.0;
+    i32 steps = 0;
+    for (i32 at = 0; at + per <= use; at += per) {
+      Vec<Board> bs = Vec.create();
+      Vec<Placement> ps = Vec.create();
+      Vec<f32> ys = Vec.create();
+      i32[] sz = i32[].filled(per, 0);
+      for (i32 k = 0; k < per; k++) {
+        Group g = all[order[at + k]];
+        f32[] t = targetOf(g, temp);
+        for (i32 i = 0; i < g.boards.len(); i++) {
+          bs.push(g.boards[i]);
+          ps.push(g.placements[i]);
+          ys.push(t[i]);
+        }
+        sz[k] = g.boards.len();
+      }
+      i32 n = bs.len();
+      f32[] member = f32[].filled(n * per, 0.0);
+      f32[] ones = f32[].filled(per * n, 0.0);
+      i32 o = 0;
+      for (i32 q = 0; q < per; q++) {
+        for (i32 i = 0; i < sz[q]; i++) {
+          member[(o + i) * per + q] = 1.0;
+          ones[q * n + o + i] = 1.0;
+        }
+        o += sz[q];
+      }
+      Board[] boards = bs.toArray();
+      Placement[] places = ps.toArray();
+      Tensor y = d.tensor(ys.toArray(), [n, 1]);
+      Tensor mem = d.tensor(member, [n, per]);
+      Tensor sum = d.tensor(ones, [per, n]);
+      Tensor loss = opt.minimize(() => {
+        Tensor z = f.logits(d, boards, places).clip(-30.0, 30.0);
+        Tensor logp = z.sub(mem.matmul(sum.matmul(z.exp()).log()));
+        return logp.mul(y).sum([], false).neg().div(per as f64);
+      }, f.params);
+      total += loss.item() as f64;
+      steps++;
+      loss.dispose();
+      y.dispose();
+      mem.dispose();
+      sum.dispose();
+    }
+    sys.log("epoch \{e + 1}: cross-entropy \{total / (steps as f64)}");
+  }
+  auto w = await sys.writeFile(a[1], saveWeightsNow(f.params));
+  if (w.isErr()) { sys.log("pfilter: " + w.err()!); return 1; }
+  return 0;
+}
+
+async i32 screen(Sys sys, Device d, string[] a) {
+  ProbFilter f = ProbFilter.create(d, parseInt(a[2]), parseInt(a[3]));
+  auto r = loadWeights(f.params, (await sys.readFile(a[1])).orElse(u8[]()));
+  if (r.isErr()) { sys.log("pfilter: " + r.err()!); return 1; }
+  string[] files = string[].filled(a.len() - 4, "");
+  for (i32 i = 4; i < a.len(); i++) { files[i - 4] = a[i]; }
+  Group[] gs = await loadAll(sys, files);
+  // Every group's probabilities, a few hundred groups a batch.
+  Vec<f32> pv = Vec.create();
+  for (i32 at = 0; at < gs.len(); at += 200) {
+    i32 to = at + 200 < gs.len() ? at + 200 : gs.len();
+    Vec<Board> bs = Vec.create();
+    Vec<Placement> ps = Vec.create();
+    i32[] counts = i32[].filled(to - at, 0);
+    for (i32 k = at; k < to; k++) {
+      for (i32 i = 0; i < gs[k].boards.len(); i++) {
+        bs.push(gs[k].boards[i]);
+        ps.push(gs[k].placements[i]);
+      }
+      counts[k - at] = gs[k].boards.len();
+    }
+    f32[] pr = f.probabilities(d, bs.toArray(), ps.toArray(), counts);
+    for (f32 x in pr) { pv.push(x); }
+  }
+  f32[] probs = pv.toArray();
+  f64[] thresholds = [0.9, 0.95, 0.99, 0.995, 0.999];
+  i32 tetrisGroups = 0;
+  for (Group g in gs) { if (g.boards[argmax(g.values)].linesCleared - g.parent.linesCleared == 4) { tetrisGroups++; } }
+  sys.log("\{gs.len()} groups, \{tetrisGroups} whose best placement is a tetris");
+  for (i32 c = 0; c < 2; c++) {
+    bool clears = c == 1;
+    for (f64 th in thresholds) {
+      f64 kept = 0.0;
+      f64 regret = 0.0;
+      i32 missedTetris = 0;
+      f64[] regrets = f64[].filled(gs.len(), 0.0);
+      i32 at = 0;
+      for (i32 k = 0; k < gs.len(); k++) {
+        Group g = gs[k];
+        i32 n = g.boards.len();
+        f32[] p = f32[].filled(n, 0.0);
+        for (i32 i = 0; i < n; i++) { p[i] = probs[at + i]; }
+        bool[] keep = keepByProbability(p, g.boards, [g.parent], [n], th, clears);
+        i32 best = argmax(g.values);
+        f64 got = -1.0e30;
+        for (i32 i = 0; i < n; i++) {
+          if (keep[i]) {
+            kept += 1.0;
+            if ((g.values[i] as f64) > got) { got = g.values[i] as f64; }
+          }
+        }
+        regrets[k] = (g.values[best] as f64) - got;
+        regret += regrets[k];
+        if (!keep[best] && g.boards[best].linesCleared - g.parent.linesCleared == 4) { missedTetris++; }
+        at += n;
+      }
+      // The 99th percentile: how many of the regrets lie above each candidate, until a hundredth do.
+      f64 p99 = percentile99(regrets);
+      f64 n = gs.len() as f64;
+      sys.log("\{clears ? "keep clears, " : ""}threshold \{th}: \{(kept / n * 10.0).round() / 10.0} kept a group, regret mean \{(regret / n * 10.0).round() / 10.0}, p99 \{p99.round()}, tetris replies missed \{missedTetris} of \{tetrisGroups}");
+    }
+  }
+  return 0;
+}
+
+f64 percentile99(f64[] xs) {
+  f64[] s = f64[].filled(xs.len(), 0.0);
+  for (i32 i = 0; i < xs.len(); i++) {
+    f64 x = xs[i];
+    i32 j = i - 1;
+    while (j >= 0 && s[j] > x) {
+      s[j + 1] = s[j];
+      j--;
+    }
+    s[j + 1] = x;
+  }
+  return s.len() == 0 ? 0.0 : s[(s.len() * 99) / 100];
+}
+
+/**
+ * Games as `tools/evaluate.wac dual … 3` plays them — the same pieces, the same checks — with the probability filter
+ * at lookahead's deepest level: a line a game, then the boards kept a group and the time a move.
+ */
+async i32 playGames(Sys sys, Device d, string[] a) {
+  ValueNet net = ValueNet.create(d, ValueConfig.dual());
+  auto r = loadWeights(net.params, (await sys.readFile(a[1])).orElse(u8[]()));
+  if (r.isErr()) { sys.log("pfilter: " + r.err()!); return 1; }
+  ProbFilter f = ProbFilter.create(d, parseInt(a[3]), parseInt(a[4]));
+  auto fr = loadWeights(f.params, (await sys.readFile(a[2])).orElse(u8[]()));
+  if (fr.isErr()) { sys.log("pfilter: " + fr.err()!); return 1; }
+  f64 threshold = (parseInt(a[5]) as f64) / 1000.0;
+  bool clears = parseInt(a[6]) == 1;
+  Tally tally = Tally(0 as i64, 0 as i64);
+  i64 nanos = 0 as i64;
+  i32 moves = 0;
+  for (i32 seed = parseInt(a[7]); seed <= parseInt(a[8]); seed++) {
+    Pieces pieces = Pieces.seeded(seed);
+    Board board = Board.empty(130);
+    i32 positions = 0;
+    while (true) {
+      positions++;
+      if (board.finished || board.maxHeight() > 15) { break; }
+      Board[] choices = board.choices(pieces.next());
+      if (choices.len() == 0) { break; }
+      i64 t0 = await sys.monotonicNanos();
+      f32[] v = finalScoresOf(d, net, choices, 0);
+      f32[] lv = probLookahead(d, choices, v, 3, (Board[] bs) => finalScoresOf(d, net, bs, 1), f, threshold, clears, tally);
+      nanos += (await sys.monotonicNanos()) - t0;
+      moves++;
+      board = choices[argmax(lv)];
+    }
+    sys.log("\{seed} \{board.score} \{positions} \{board.linesCleared} \{board.tetrises}");
+  }
+  sys.log("kept \{((tally.kept as~ f64) / (tally.groups as~ f64))} a group; \{((nanos / (moves as i64)) as~ f64) / 1.0e6} ms a move");
+  return 0;
+}
