@@ -100,3 +100,37 @@ export f32[] previewLook(Device d, ValueNet net, Board[] choices, i32 next, i32 
   for (i32 t = 0; t < k; t++) { out[top[t]] = deep[t]; }
   return out;
 }
+
+/**
+ * The pair player's estimate of each of `choices` (the current piece's placements), with `next` the piece the preview
+ * shows: the best, over every placement of `next` after it, of the final score the network expects — the points of
+ * both placements plus its value of the board left, by `head`. The network is the ordinary one, told nothing of the
+ * pieces; only the search knows the preview. A placement that ends the game is worth its score, and so is one after
+ * which `next` has nowhere to go. Every board after both pieces is valued in one batch, about 23 × 23 a move.
+ */
+export f32[] pairLook(Device d, ValueNet net, Board[] choices, i32 next, i32 head) {
+  Vec<Board> deeper = Vec.create();
+  i32[] counts = i32[].filled(choices.len(), 0);
+  for (i32 i = 0; i < choices.len(); i++) {
+    if (choices[i].finished) { continue; }
+    Board[] gs = choices[i].choices(next);
+    counts[i] = gs.len();
+    for (Board g in gs) { deeper.push(g); }
+  }
+  f32[] v = deeper.len() > 0 ? finalScoresOf(d, net, deeper.toArray(), head) : f32[]();
+  Board[] all = deeper.toArray();
+  f32[] out = f32[].filled(choices.len(), 0.0);
+  i32 at = 0;
+  for (i32 i = 0; i < choices.len(); i++) {
+    i32 n = counts[i];
+    f64 best = n == 0 ? (choices[i].score as f64) : -1.0e30;
+    for (i32 j = 0; j < n; j++) {
+      Board g = all[at + j];
+      f64 q = g.finished ? (g.score as f64) : (v[at + j] as f64);
+      if (q > best) { best = q; }
+    }
+    out[i] = best as~ f32;
+    at += n;
+  }
+  return out;
+}
