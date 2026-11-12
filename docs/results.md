@@ -156,6 +156,19 @@ Against two-piece lookahead keeping 6 as the reference, one-piece lookahead make
 more candidates do not bring it closer (5 or 8 candidates, filtered: 93–94%): the moves where one and two pieces ahead
 differ are found by looking deeper, not wider.
 
+**In whole games the filter is not free.** One-piece lookahead with the filter, paired against it unfiltered on games
+1–200 (`docs/runs/filter-keep*-1-200.txt`; times under the same load, startup included):
+
+| One-piece lookahead | Mean score | Against unfiltered (28,590) | Time a move |
+|---|---|---|---|
+| unfiltered | 28,590 | — | 160 ms |
+| filter keeping 6 | 27,822 | −768 ± 289, higher in 81 of 200 | 73 ms |
+| filter keeping 4 | 27,724 | −866 ± 281, higher in 85 of 200 | 61 ms |
+
+It makes the same move 98% of the time, but the moves it changes cost far more than their share: the placements it
+ranks wrongly are the unusual ones that matter. As it stands it is not for the duel page; keeping more, or a better
+filter, would have to be measured in games again.
+
 ## Other ways to combine the seven pieces' outcomes (branch `risk`)
 
 One-piece lookahead values a placement as the **mean**, over the seven pieces that could come next, of the best each
