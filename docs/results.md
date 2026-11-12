@@ -155,3 +155,20 @@ real games — a measure without the noise of whole games, in which one differen
 Against two-piece lookahead keeping 6 as the reference, one-piece lookahead makes the same move 94.9% of the time, and
 more candidates do not bring it closer (5 or 8 candidates, filtered: 93–94%): the moves where one and two pieces ahead
 differ are found by looking deeper, not wider.
+
+## Other ways to combine the seven pieces' outcomes (branch `risk`)
+
+One-piece lookahead values a placement as the **mean**, over the seven pieces that could come next, of the best each
+then allows. That is right for the average score if the network's values are right. Rules that weigh the bad outcomes
+more could still help if the network underrated them, or offset the upward bias of taking the best of many noisy
+estimates. They do not. Games 1–~60, paired against the mean (`docs/runs/risk-*.txt`,
+`tools/evaluate.wac dual … 3 min|sd5|sd10|worst3`):
+
+| Rule | Games | Mean score | Against the mean |
+|---|---|---|---|
+| the worst of the seven | 60 | 25,816 | −3,155 ± 611, higher in 11 |
+| mean less one standard deviation | 61 | 26,383 | −2,628 ± 626, higher in 13 |
+| mean of the worst three | 60 | 27,601 | −1,371 ± 614, higher in 22 |
+| mean less half a standard deviation | 60 | 27,969 | −1,003 ± 391, higher in 18 |
+
+The more pessimistic the rule, the worse it plays: the network's downside estimates are as good as its others.
