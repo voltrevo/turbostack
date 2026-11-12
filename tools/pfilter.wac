@@ -161,9 +161,9 @@ async i32 fit(Sys sys, Device d, string[] a) {
       sum.dispose();
     }
     sys.log("epoch \{e + 1}: cross-entropy \{total / (steps as f64)}");
+    auto w = await sys.writeFile(a[1], saveWeightsNow(f.params));
+    if (w.isErr()) { sys.log("pfilter: " + w.err()!); return 1; }
   }
-  auto w = await sys.writeFile(a[1], saveWeightsNow(f.params));
-  if (w.isErr()) { sys.log("pfilter: " + w.err()!); return 1; }
   return 0;
 }
 
