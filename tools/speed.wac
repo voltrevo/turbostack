@@ -13,7 +13,7 @@ export async i32 main(Sys sys) {
   for (i32 i = 0; i < 30; i++) { b = b.choices(p.next())[0]; }
   i32[] sizes = [25, 175, 1750];
   LegacyScoreModel old = LegacyScoreModel.create(d);
-  ValueNet[] nets = [ValueNet.create(d, ValueConfig(8, 16, 8, 32, 1)), ValueNet.create(d, ValueConfig.standard())];
+  ValueNet[] nets = [ValueNet.create(d, ValueConfig(8, 16, 8, 32, 1, false)), ValueNet.create(d, ValueConfig.standard())];
   for (i32 n in sizes) {
     Board[] bs = Board[].filled(n, b);
     i32 reps = 20000 / n;

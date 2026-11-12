@@ -25,15 +25,20 @@ export struct ValueConfig {
    * `lookahead` should find a piece deeper, where the first is what the network's own greedy play goes on to score.
    */
   i32 heads;
+  /** Whether it is also told the piece known to come next (`Board.next`), as a one-hot of seven. */
+  bool preview;
 
-  ValueConfig standard() { return ValueConfig(16, 24, 16, 64, 1); }
+  ValueConfig standard() { return ValueConfig(16, 24, 16, 64, 1, false); }
   /** The standard network with the second, lookahead value. */
-  ValueConfig dual() { return ValueConfig(16, 24, 16, 64, 2); }
+  ValueConfig dual() { return ValueConfig(16, 24, 16, 64, 2, false); }
   /** Half the width throughout: about as fast to evaluate as the old model, for learning quickly what works. */
-  ValueConfig small() { return ValueConfig(8, 16, 8, 32, 1); }
+  ValueConfig small() { return ValueConfig(8, 16, 8, 32, 1, false); }
   /** Twice the width throughout, about three times the work: for when the standard network stops improving. */
-  ValueConfig large() { return ValueConfig(32, 32, 32, 128, 1); }
+  ValueConfig large() { return ValueConfig(32, 32, 32, 128, 1, false); }
+  /** The standard network, also told the next piece: the value of a board when the piece after it is known. */
+  ValueConfig withPreview() { return ValueConfig(16, 24, 16, 64, 1, true); }
   ValueConfig named(string name) {
+    if (name == "preview") { return ValueConfig.withPreview(); }
     if (name == "small") { return ValueConfig.small(); }
     if (name == "large") { return ValueConfig.large(); }
     if (name == "dual" || name == "dual1") { return ValueConfig.dual(); }
@@ -52,7 +57,7 @@ export struct ValueNet {
   Variable[] params;
 
   ValueNet create(Device d, ValueConfig c) {
-    i32 joined = 18 * c.rows + 10 * c.cols + EXTRA;
+    i32 joined = 18 * c.rows + 10 * c.cols + EXTRA + (c.preview ? 7 : 0);
     i32[][] shapes = [[4, 3, 1, c.conv], [c.conv], [1, 10, c.conv, c.rows], [c.rows], [18, 1, c.conv, c.cols], [c.cols],
                       [joined, c.hidden], [c.hidden], [c.hidden, c.hidden], [c.hidden], [c.hidden, c.heads], [c.heads]];
     i32[] fanIn = [12, 1, 10 * c.conv, 1, 18 * c.conv, 1, joined, 1, c.hidden, 1, c.hidden, 1];
@@ -71,16 +76,19 @@ export struct ValueNet {
     return ValueNet(c, ps);
   }
 
-  /** The lines remaining, `[n, 3]`. */
+  /** The lines remaining, `[n, 3]` — and for the preview network the next piece after them, `[n, 10]`. */
   Tensor extras(this, Device d, Board[] boards) {
-    f32[] x = f32[].filled(boards.len() * EXTRA, 0.0);
+    i32 w = EXTRA + (this.config.preview ? 7 : 0);
+    f32[] x = f32[].filled(boards.len() * w, 0.0);
     for (i32 k = 0; k < boards.len(); k++) {
       i32 l = boards[k].linesRemaining();
-      x[k * EXTRA] = (l as~ f32) / 130.0;
-      x[k * EXTRA + 1] = ((l < 10 ? l : 10) as~ f32) / 10.0;
-      x[k * EXTRA + 2] = l <= 4 ? 1.0 : 0.0;
+      x[k * w] = (l as~ f32) / 130.0;
+      x[k * w + 1] = ((l < 10 ? l : 10) as~ f32) / 10.0;
+      x[k * w + 2] = l <= 4 ? 1.0 : 0.0;
+      // The next piece, one-hot; nothing when it is not known.
+      if (this.config.preview && boards[k].next >= 0) { x[k * w + EXTRA + boards[k].next] = 1.0; }
     }
-    return d.tensor(x, [boards.len(), EXTRA]);
+    return d.tensor(x, [boards.len(), w]);
   }
 
   /** Each board's values, `[n, heads]`, in the network's units — thousands of points still to come. */

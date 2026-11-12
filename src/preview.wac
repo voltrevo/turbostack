@@ -1,0 +1,102 @@
+// Playing with a preview, as Tetris shows one: the piece after the current one is known.
+//
+// The preview network values a board after a piece lands **together with the piece known to come next**
+// (`Board.next`): `V(board, next)`, the points still to come. At a move with piece `p` and preview `q`:
+//
+// - greedy: `p` goes where `points + V(board, q)` is largest — about 23 boards valued a move;
+// - with lookahead: the `look` best of those also place `q`, which is known, at its best, and each is valued as the
+//   mean, over the seven pieces `r` the preview could then show, of the best `q` placement's `points + V(board, r)`:
+//   one level exact instead of averaged, at the cost of one-piece lookahead.
+//
+// The training target of a board with preview `q` is that same mean — what the board is worth if `q` is placed at its
+// best, knowing what follows it — an exact one-step backup, like the dual network's.
+
+import { Vec } from "core";
+import { Device } from "tensor";
+import { Board, PIECE_COUNT } from "./board.wac";
+import { finalScoresOf } from "./selfplay.wac";
+import { ValueNet } from "./value.wac";
+
+/** `boards` with `next` known: copies, each told it. */
+Board[] withNext(Board[] boards, i32 next) {
+  Board[] out = Board[].filled(boards.len(), boards.len() > 0 ? boards[0] : Board.empty(0));
+  for (i32 i = 0; i < boards.len(); i++) {
+    Board b = boards[i].clone();
+    b.next = next;
+    out[i] = b;
+  }
+  return out;
+}
+
+/**
+ * For each of `boards` (each with its `next` known): the mean, over the seven pieces that could follow, of the best
+ * final score placing `next` then allows — its own score where the game has ended, and its score for a `next` with
+ * nowhere to go. Every board a piece deeper is valued, with each following piece, in one batch.
+ */
+export f32[] previewBackup(Device d, ValueNet net, Board[] boards) {
+  Vec<Board> deeper = Vec.create();
+  i32[] counts = i32[].filled(boards.len(), 0);
+  for (i32 k = 0; k < boards.len(); k++) {
+    Board b = boards[k];
+    if (b.finished || b.next < 0) { continue; }
+    Board[] cs = b.choices(b.next);
+    counts[k] = cs.len();
+    for (i32 r = 0; r < PIECE_COUNT; r++) {
+      for (Board c in cs) {
+        Board x = c.clone();
+        x.next = r;
+        deeper.push(x);
+      }
+    }
+  }
+  f32[] v = deeper.len() > 0 ? finalScoresOf(d, net, deeper.toArray(), 0) : f32[]();
+  Board[] all = deeper.toArray();
+  f32[] out = f32[].filled(boards.len(), 0.0);
+  i32 at = 0;
+  for (i32 k = 0; k < boards.len(); k++) {
+    Board b = boards[k];
+    i32 n = counts[k];
+    if (b.finished || n == 0) {
+      out[k] = b.score as~ f32;
+      continue;
+    }
+    f64 total = 0.0;
+    for (i32 r = 0; r < PIECE_COUNT; r++) {
+      f64 best = -1.0e30;
+      for (i32 j = 0; j < n; j++) {
+        Board x = all[at + j];
+        f64 q = x.finished ? (x.score as f64) : (v[at + j] as f64);
+        if (q > best) { best = q; }
+      }
+      total += best;
+      at += n;
+    }
+    out[k] = (total / (PIECE_COUNT as f64)) as~ f32;
+  }
+  return out;
+}
+
+/**
+ * The preview player's estimate of each of `choices`' final score, with `next` the piece the preview shows: greedy
+ * for `look` 0, else its `look` best valued again by `previewBackup`, the rest below them.
+ */
+export f32[] previewLook(Device d, ValueNet net, Board[] choices, i32 next, i32 look) {
+  Board[] cs = withNext(choices, next);
+  f32[] v = finalScoresOf(d, net, cs, 0);
+  if (look == 0) { return v; }
+  i32 k = look < cs.len() ? look : cs.len();
+  bool[] taken = bool[].filled(cs.len(), false);
+  i32[] top = i32[].filled(k, 0);
+  for (i32 t = 0; t < k; t++) {
+    i32 best = -1;
+    for (i32 i = 0; i < cs.len(); i++) { if (!taken[i] && (best < 0 || v[i] > v[best])) { best = i; } }
+    taken[best] = true;
+    top[t] = best;
+  }
+  Board[] picked = Board[].filled(k, cs[0]);
+  for (i32 t = 0; t < k; t++) { picked[t] = cs[top[t]]; }
+  f32[] deep = previewBackup(d, net, picked);
+  f32[] out = f32[].filled(cs.len(), -1.0e30);
+  for (i32 t = 0; t < k; t++) { out[top[t]] = deep[t]; }
+  return out;
+}

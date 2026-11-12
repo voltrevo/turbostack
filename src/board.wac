@@ -86,10 +86,12 @@ export struct Board {
   bool finished;
   i32 score;
   i32 tetrises;
+  /** The piece known to come next, as Tetris's preview shows it, or -1 when it is not known. */
+  i32 next;
 
   /** An empty board for a game of `linesMax` lines. */
   Board empty(i32 linesMax) {
-    return Board(i32[].filled(10, 0), i32[].filled(20, 0), 0, linesMax, false, 0, 0);
+    return Board(i32[].filled(10, 0), i32[].filled(20, 0), 0, linesMax, false, 0, 0, -1);
   }
 
   Board clone(this) {
@@ -97,7 +99,7 @@ export struct Board {
     i32[] r = i32[].filled(20, 0);
     for (i32 j = 0; j < 10; j++) { c[j] = this.cols[j]; }
     for (i32 i = 0; i < 20; i++) { r[i] = this.rows[i]; }
-    return Board(c, r, this.linesCleared, this.linesMax, this.finished, this.score, this.tetrises);
+    return Board(c, r, this.linesCleared, this.linesMax, this.finished, this.score, this.tetrises, this.next);
   }
 
   bool get(this, i32 i, i32 j) { return (this.rows[i] & (1 << (9 - j))) != 0; }

@@ -64,7 +64,8 @@ export struct Examples {
       b.pushU32(x.linesCleared as@ u32);
       b.pushU32(x.linesMax as@ u32);
       b.pushU32(x.score as@ u32);
-      b.pushU32(x.tetrises as@ u32);
+      // The tetrises, and above them the piece known to come next, plus one: nothing for none.
+      b.pushU32((x.tetrises | ((x.next + 1) << 16)) as@ u32);
       b.pushU32(f32.toBits(this.targets.get(i)));
       if (looks) { b.pushU32(f32.toBits(this.looks.get(i))); }
     }
@@ -91,7 +92,8 @@ export struct Examples {
       }
       b.linesCleared = v[10];
       b.score = v[12];
-      b.tetrises = v[13];
+      b.tetrises = v[13] & 0xFFFF;
+      b.next = (v[13] >>> 16) - 1;
       out.addBoth(b, f32.fromBits(v[14] as@ u32), fields == 16 ? f32.fromBits(v[15] as@ u32) : NO_TARGET);
       at += 4 * fields;
     }
