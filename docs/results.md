@@ -35,13 +35,15 @@ plays better greedily but its values are less accurate a move further out.
 
 ## How the self-taught model learned
 
+The full story, for re-implementing it: `docs/bootstrapping.md`.
+
 From random weights, with no human games (`src/selfplay.wac`, `tools/train-pipe.sh`), run v5:
 
 | Iteration | Mean score, games 1001–1020 | What changed |
 |---|---|---|
 | 4 | 322 | TD(λ) targets, a survival bonus of 40 a piece |
 | 16 | 1,577 | clearing single lines, surviving ~120 pieces |
-| 24 | 3,605 | wells added to the starting boards |
+| 24 | 3,605 | wells in the starting boards (added from iteration 17) |
 | 32 | 9,071 | survival bonus gone; tetrises appear |
 | 44 | 15,546 | |
 | 56 | 17,283 | exploration 5% → 1.5%, learning rate 0.001 → 0.0003 |
