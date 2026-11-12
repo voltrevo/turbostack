@@ -199,3 +199,12 @@ The two outputs come to the same (+7 ± 156). It finishes 199 of the 200 games a
 A first design gave the network the next piece as an input, a one-hot of seven, and trained it on its own play with
 the preview; over 12 rounds its greedy play did not improve (25,420 → 24,596 on games 1001–1100), though it learned to
 tell the pieces apart. The search alone, with the network as it is, is where the preview's worth is.
+
+**Recalibrating the network for these rules did not clearly help.** A bounded pilot retrained the greedy output —
+the one at the pair search's leaves, board-only as before — towards its value under the pair player: each board's
+target the mean, over the seven next pieces each with a random piece after it, of the best pair's final score
+(`tools/preview.wac pgen`, ~3,700 boards valued per target), 4,000 boards a round from the pair player's own games.
+Paired against the unchanged network's pair search on held-out games 1001–1040 (32,026): round 1 +857 ± 406, round 2
++136 ± 433, its held-out error rising (109 → 232). Round 1 on 40 fresh games (1041–1080) was −91 ± 345; over all 80,
++383 ± 270, and the first 40 are the ones that picked it. So the pilot stopped there: the unchanged network serves the
+search as well as one recalibrated this way.
