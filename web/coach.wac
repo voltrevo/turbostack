@@ -594,7 +594,10 @@ export async i32 main(Page page) {
   i32 redAskK = -1;
   bool redEndAsked = false;
   bool redBackAsked = false;
-  // Sounds play once someone has touched the page (browsers allow nothing sooner), and the music starts then.
+  // Sounds play once someone has touched the page (browsers allow nothing sooner), and the music starts then. Nothing
+  // resumes the browser's audio but the page asking, from the gesture itself (`page.resumeAudio`): every key and
+  // pointer press in the app asks, the Play button too, and so does the page being seen again after being hidden,
+  // since a browser suspends a hidden tab's audio and does not resume it itself.
   bool soundOn = true;
   bool musicOn = true;
   bool touched = false;
@@ -674,12 +677,16 @@ export async i32 main(Page page) {
   // Space cannot be named among the keys whose default is prevented (they are split on spaces), so Enter drops too.
   app.on("keydown", Listen.keys("Enter"), (ElementEvent e) => {
     touched = true;
+    page.resumeAudio();
     if (e.value == "Shift") { cycle++; ticked = true; dirty = true; }
     else if (e.value == " " || e.value == "Enter") { dropAsked = true; }
     else if (e.value == "h" || e.value == "H") { hint = !hint; dirty = true; }
     else if (e.value == "m" || e.value == "M") { musicOn = !musicOn; audioChanged = true; }
   });
-  app.on("pointerdown", Listen.none(), (ElementEvent e) => { touched = true; });
+  app.on("pointerdown", Listen.none(), (ElementEvent e) => {
+    touched = true;
+    page.resumeAudio();
+  });
   dropButton.on("click", Listen.none(), (ElementEvent e) => { dropAsked = true; });
   cycleButton.on("click", Listen.none(), (ElementEvent e) => { cycle++; ticked = true; dirty = true; });
   soundButton.on("click", Listen.none(), (ElementEvent e) => { soundOn = !soundOn; audioChanged = true; });
@@ -692,7 +699,12 @@ export async i32 main(Page page) {
     deleteArmed = !deleteArmed;
     deleteButton.text(deleteArmed ? "Click again to delete everything" : "Delete my data");
   });
-  introPlay.on("click", Listen.none(), (ElementEvent e) => { introPlayAsked = true; });
+  introPlay.on("click", Listen.none(), (ElementEvent e) => {
+    page.resumeAudio();
+    introPlayAsked = true;
+  });
+  // Before anyone has touched the page, the browser would refuse: asking is for coming back.
+  page.onVisible((bool seen) => { if (seen && touched) { page.resumeAudio(); } });
   redEnd.on("click", Listen.none(), (ElementEvent e) => { redEndAsked = true; });
   redBack.on("click", Listen.none(), (ElementEvent e) => { redBackAsked = true; });
 

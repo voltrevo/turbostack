@@ -7,7 +7,7 @@
     // gzip and JSON, for reading recorded human games (`tools/human*.wac`).
     wac: { git: 'https://git.voltrevo.com/wac.git', ref: '3e430f338603ae64fa2107fa3f1e43af876eb821' },
     // Only the pages site (`web/play.wac`) and its builder use these.
-    web: { git: 'https://git.voltrevo.com/wac-web.git', ref: '0b683c870cee6837878a85035a33d57db17c4c91' },
-    webbuild: { git: 'https://git.voltrevo.com/wac-web.git', ref: '0b683c870cee6837878a85035a33d57db17c4c91', subdir: './tools' },
+    web: { git: 'https://git.voltrevo.com/wac-web.git', ref: '509fc10e2407fc64aae39db9884a0d96ef996def' },
+    webbuild: { git: 'https://git.voltrevo.com/wac-web.git', ref: '509fc10e2407fc64aae39db9884a0d96ef996def', subdir: './tools' },
   },
 }

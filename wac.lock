@@ -2,7 +2,7 @@
   "imports": {
     "tensor": { "git": "https://git.voltrevo.com/wac-tensor.git", "ref": "3bd2ff66cff6083ef5e4320261fa133202fab0af", "commit": "3bd2ff66cff6083ef5e4320261fa133202fab0af" },
     "wac": { "git": "https://git.voltrevo.com/wac.git", "ref": "3e430f338603ae64fa2107fa3f1e43af876eb821", "commit": "3e430f338603ae64fa2107fa3f1e43af876eb821" },
-    "web": { "git": "https://git.voltrevo.com/wac-web.git", "ref": "0b683c870cee6837878a85035a33d57db17c4c91", "commit": "0b683c870cee6837878a85035a33d57db17c4c91" },
-    "webbuild": { "git": "https://git.voltrevo.com/wac-web.git", "ref": "0b683c870cee6837878a85035a33d57db17c4c91", "subdir": "./tools", "commit": "0b683c870cee6837878a85035a33d57db17c4c91" }
+    "web": { "git": "https://git.voltrevo.com/wac-web.git", "ref": "509fc10e2407fc64aae39db9884a0d96ef996def", "commit": "509fc10e2407fc64aae39db9884a0d96ef996def" },
+    "webbuild": { "git": "https://git.voltrevo.com/wac-web.git", "ref": "509fc10e2407fc64aae39db9884a0d96ef996def", "subdir": "./tools", "commit": "509fc10e2407fc64aae39db9884a0d96ef996def" }
   }
 }
