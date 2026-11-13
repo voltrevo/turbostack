@@ -8,3 +8,6 @@
   lookahead, for `tools/evaluate.wac dual … 3`. Run v10 iteration 36, learned from v6 by self-play.
 - `v5/model-<i>.weights` — checkpoints from run v5, the run that learned from nothing (`docs/bootstrapping.md`), at
   the iterations its tables cite: `standard` networks, for `tools/evaluate.wac standard models/v5/model-32.weights …`.
+- `fast-dual.weights` — a `dual` network learned from nothing in 27 minutes of training on a Mac's GPU
+  (`tools/learn.wac`, run s4 then its lookahead phase, `docs/fast-training.md`): 28,150 ± 313 with lookahead on games
+  1–200, against `self-taught-dual.weights`' 28,590 (−440 ± 383 game by game).

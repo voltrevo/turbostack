@@ -1,0 +1,486 @@
+// Self-play, targets and play on a device that answers only when asked to wait — a GPU — with many games moving
+// together, so that every batch the network values is thousands of boards rather than one piece's twenty-odd.
+//
+// One engine for every way of learning here (`generate`): a board's target is a λ-return over the game it came from,
+//
+//     G(k) = (1 − λ) · B(k) + λ · (points of move k+1 + G(k+1))
+//
+// where the bootstrap B(k) is either **the next board the game reached** — `points + value` of the move that followed,
+// TD(λ), cheap — or **the exact expectation** over the seven pieces that could come next of the best `points + value`
+// each allows, which values every placement of every piece, about seven times the boards. `Play.exact` says what share
+// of boards take the exact one; v5 was TD with λ = 0.9 and v6 exact with λ = 0.5. A random exploring move cuts the chain:
+// the board before it takes B alone, as does the last board a game reached.
+//
+// With a `dual` network, lookahead (`lookValues`) can choose the moves, and a share of the boards can be given a
+// lookahead target for head 1 (`lookTargets`): the same search one level up.
+
+import { Ticket, Vec } from "core";
+import { Device, Tensor } from "tensor";
+import { Board, PIECE_COUNT } from "./board.wac";
+import { GameResult, Pieces, argmax } from "./game.wac";
+import { Examples, NO_TARGET, startingBoard } from "./selfplay.wac";
+import { ValueNet } from "./value.wac";
+
+/** The most boards one forward pass values: larger batches are split, and all the parts sent before any is read. */
+static i32 CHUNK = 8192;
+
+Board[] part(Board[] bs, i32 from, i32 to) {
+  Board[] out = Board[].filled(to - from, bs[from]);
+  out.copyFrom(bs, from, 0, to - from);
+  return out;
+}
+
+/**
+ * Every head's value of every one of `boards` in points, a finished board's all nothing: `[n × heads]`, board by board.
+ * Counted in `net.valued`.
+ */
+export async f32[] valueAll(Device d, ValueNet net, Board[] boards) {
+  i32 n = boards.len();
+  i32 h = net.config.heads;
+  f32[] out = f32[].filled(n * h, 0.0);
+  if (n == 0) { return out; }
+  net.valued += n as i64;
+  Vec<Ticket<f32[]>> asked = Vec.create();
+  Vec<Tensor> made = Vec.create();
+  for (i32 at = 0; at < n; at += CHUNK) {
+    Board[] bs = part(boards, at, at + CHUNK < n ? at + CHUNK : n);
+    Tensor t = d.tidy(() => net.forward(d, bs));
+    made.push(t);
+  }
+  // Asked only once every part is on its way: the first read sends them all, and the device waits once.
+  for (i32 c = 0; c < made.len(); c++) { asked.push(made.get(c).values()); }
+  for (i32 c = 0; c < made.len(); c++) {
+    f32[] v = await asked.get(c);
+    made.get(c).dispose();
+    i32 at = c * CHUNK;
+    Board[] bs = part(boards, at, at + CHUNK < n ? at + CHUNK : n);
+    v = net.points(bs, v);
+    for (i32 i = 0; i < v.len(); i++) { out[at * h + i] = v[i]; }
+  }
+  return out;
+}
+
+/** Each board's score plus head `head`'s value: the final score it expects. `all` is `valueAll`'s answer. */
+f32[] finals(Board[] boards, f32[] all, i32 heads, i32 head) {
+  f32[] out = f32[].filled(boards.len(), 0.0);
+  for (i32 i = 0; i < boards.len(); i++) { out[i] = ((boards[i].score as f64) + (all[i * heads + head] as f64)) as~ f32; }
+  return out;
+}
+
+/**
+ * One piece of lookahead for many choices at once — `lookahead` (`src/lookahead.wac`) for each of `sets`, every board a
+ * piece deeper valued in one batch: the `look` best of each set by `v` (final scores), each valued as the mean, over
+ * the seven pieces that could come next, of the best final score by head `deep` that piece then allows — its own
+ * score if the game ends there, or if a piece has nowhere to go. The rest are put below them.
+ */
+export async f32[][] lookValues(Device d, ValueNet net, Board[][] sets, f32[][] v, i32 look, i32 deep) {
+  i32 h = net.config.heads;
+  Vec<Board> deeper = Vec.create();
+  i32[][] tops = i32[][].defaulted(sets.len());
+  i32[][] counts = i32[][].defaulted(sets.len());
+  for (i32 s = 0; s < sets.len(); s++) {
+    Board[] cs = sets[s];
+    i32 k = look < cs.len() ? look : cs.len();
+    tops[s] = i32[].filled(k, 0);
+    counts[s] = i32[].filled(k * PIECE_COUNT, 0);
+    bool[] taken = bool[].filled(cs.len(), false);
+    for (i32 t = 0; t < k; t++) {
+      i32 best = -1;
+      for (i32 i = 0; i < cs.len(); i++) { if (!taken[i] && (best < 0 || v[s][i] > v[s][best])) { best = i; } }
+      taken[best] = true;
+      tops[s][t] = best;
+      Board c = cs[best];
+      if (c.finished) { continue; }
+      for (i32 p = 0; p < PIECE_COUNT; p++) {
+        Board[] gs = c.choices(p);
+        counts[s][t * PIECE_COUNT + p] = gs.len();
+        for (Board g in gs) { deeper.push(g); }
+      }
+    }
+  }
+  Board[] all = deeper.toArray();
+  f32[] dv = finals(all, await valueAll(d, net, all), h, deep);
+  f32[][] out = f32[][].defaulted(sets.len());
+  i32 at = 0;
+  for (i32 s = 0; s < sets.len(); s++) {
+    out[s] = f32[].filled(sets[s].len(), -1.0e30);
+    for (i32 t = 0; t < tops[s].len(); t++) {
+      Board c = sets[s][tops[s][t]];
+      if (c.finished) {
+        out[s][tops[s][t]] = c.score as~ f32;
+        continue;
+      }
+      f64 total = 0.0;
+      for (i32 p = 0; p < PIECE_COUNT; p++) {
+        i32 n = counts[s][t * PIECE_COUNT + p];
+        f64 best = n == 0 ? (c.score as f64) : -1.0e30;
+        for (i32 j = 0; j < n; j++) { if ((dv[at + j] as f64) > best) { best = dv[at + j] as f64; } }
+        total += best;
+        at += n;
+      }
+      out[s][tops[s][t]] = (total / (PIECE_COUNT as f64)) as~ f32;
+    }
+  }
+  return out;
+}
+
+/**
+ * The lookahead target of each of `boards` (`lookTargets` in `src/selfplay.wac`): the mean over the seven pieces of the
+ * points still to come if the dual player — candidates by head 0, `look` of them valued a piece deeper by head 1 —
+ * places that piece, nothing for a piece with nowhere to go. A few dozen boards at a time: each needs thousands valued.
+ */
+export async f32[] lookTargets(Device d, ValueNet net, Board[] boards, i32 look) {
+  i32 h = net.config.heads;
+  f32[] out = f32[].filled(boards.len(), 0.0);
+  for (i32 from = 0; from < boards.len(); from += 48) {
+    i32 to = from + 48 < boards.len() ? from + 48 : boards.len();
+    Board[][] sets = Board[][].defaulted((to - from) * PIECE_COUNT);
+    Vec<Board> flat = Vec.create();
+    for (i32 k = from; k < to; k++) {
+      for (i32 p = 0; p < PIECE_COUNT; p++) {
+        sets[(k - from) * PIECE_COUNT + p] = boards[k].choices(p);
+        for (Board c in sets[(k - from) * PIECE_COUNT + p]) { flat.push(c); }
+      }
+    }
+    Board[] fs = flat.toArray();
+    f32[] v0 = finals(fs, await valueAll(d, net, fs), h, 0);
+    f32[][] vs = f32[][].defaulted(sets.len());
+    i32 at = 0;
+    for (i32 s = 0; s < sets.len(); s++) {
+      vs[s] = f32[].filled(sets[s].len(), 0.0);
+      for (i32 i = 0; i < sets[s].len(); i++) { vs[s][i] = v0[at + i]; }
+      at += sets[s].len();
+    }
+    f32[][] lv = await lookValues(d, net, sets, vs, look, 1);
+    for (i32 k = from; k < to; k++) {
+      f64 total = 0.0;
+      for (i32 p = 0; p < PIECE_COUNT; p++) {
+        f32[] l = lv[(k - from) * PIECE_COUNT + p];
+        if (l.len() == 0) { continue; }
+        total += (l[argmax(l)] as f64) - (boards[k].score as f64);
+      }
+      out[k] = (total / (PIECE_COUNT as f64)) as~ f32;
+    }
+  }
+  return out;
+}
+
+/**
+ * The games of `seeds` played all at once by head `head`: greedily, or with `look` candidates of lookahead (head 0
+ * choosing them, head 1 valuing the boards a piece deeper). `playAll` step for step — the same checks in the same
+ * order — so the games are the CPU's, but where a GPU's rounding breaks a tie the other way.
+ */
+export async GameResult[] playLockstep(Device d, ValueNet net, i32[] seeds, i32 linesMax, i32 head, i32 look) {
+  i32 n = seeds.len();
+  i32 h = net.config.heads;
+  Board[] boards = Board[].filled(n, Board.empty(linesMax));
+  Pieces[] pieces = Pieces[].filled(n, Pieces.seeded(0));
+  i32[] positions = i32[].filled(n, 0);
+  bool[] done = bool[].filled(n, false);
+  for (i32 i = 0; i < n; i++) {
+    boards[i] = Board.empty(linesMax);
+    pieces[i] = Pieces.seeded(seeds[i]);
+  }
+  i32 left = n;
+  while (left > 0) {
+    Vec<Board> all = Vec.create();
+    Vec<i32> who = Vec.create();
+    Vec<Board[]> sets = Vec.create();
+    for (i32 i = 0; i < n; i++) {
+      if (done[i]) { continue; }
+      positions[i]++;
+      if (boards[i].finished || boards[i].maxHeight() > 15) {
+        done[i] = true;
+        left--;
+        continue;
+      }
+      if (positions[i] == 2500) { trap; }
+      Board[] cs = boards[i].choices(pieces[i].next());
+      if (cs.len() == 0) {
+        done[i] = true;
+        left--;
+        continue;
+      }
+      who.push(i);
+      sets.push(cs);
+      for (Board c in cs) { all.push(c); }
+    }
+    if (who.len() == 0) { break; }
+    Board[] flat = all.toArray();
+    f32[] v = finals(flat, await valueAll(d, net, flat), h, head);
+    Board[][] ss = sets.toArray();
+    f32[][] vs = f32[][].defaulted(ss.len());
+    i32 at = 0;
+    for (i32 s = 0; s < ss.len(); s++) {
+      vs[s] = f32[].filled(ss[s].len(), 0.0);
+      for (i32 c = 0; c < ss[s].len(); c++) { vs[s][c] = v[at + c]; }
+      at += ss[s].len();
+    }
+    if (look > 0) { vs = await lookValues(d, net, ss, vs, look, h > 1 ? 1 : 0); }
+    for (i32 s = 0; s < ss.len(); s++) { boards[who.get(s)] = ss[s][argmax(vs[s])]; }
+  }
+  GameResult[] out = GameResult[].filled(n, GameResult(0, 0, 0, 0, false));
+  for (i32 i = 0; i < n; i++) {
+    Board b = boards[i];
+    out[i] = GameResult(b.score, positions[i], b.linesCleared, b.tetrises, b.linesCleared < b.linesMax);
+  }
+  return out;
+}
+
+/** How self-play games are played and their boards' targets made (`generate`). */
+export struct Play {
+  /** The chance a piece goes somewhere at random rather than where the player would put it. */
+  f64 epsilon;
+  f64 lambda;
+  /** A reward for every piece placed without topping out, while learning (`examplesFromPlay`). */
+  f64 bonus;
+  /** The share of boards whose bootstrap is the exact expectation over the next piece rather than the next board. */
+  f64 exact;
+  /** Lookahead candidates the player uses — a `dual` network's head 0 choosing them, head 1 valuing a piece deeper — or 0 to play greedily by head 0. */
+  i32 look;
+  /** The share of boards given a lookahead target for head 1 (`lookTargets`), with `targetLook` candidates. */
+  f64 lookShare;
+  i32 targetLook;
+}
+
+/** A self-play game in progress: where it is, and for each board its moves made, what its target needs. */
+struct Game {
+  Board b;
+  /** Whether the board the game is at bootstraps from the exact expectation. */
+  bool exactNow;
+  /** The network's value of the board the game is at, from when it was chosen. */
+  f64 value;
+  /** `seq[k]` is the board after move k; `reward[k]` what move k scored, bonus included; `random[k]` whether it was a random one. */
+  Vec<Board> seq;
+  Vec<f64> reward;
+  Vec<bool> random;
+  /** B(k) for each board of `seq`, as each is left. */
+  Vec<f64> base;
+}
+
+/**
+ * The games self-play has going: each iteration's `generate` continues them where the last one stopped, so the boards
+ * an iteration sees come from every stage of a game, not only the first moves of new ones.
+ */
+export struct Actors {
+  Vec<Game> playing;
+
+  Actors create() { return Actors(Vec.create()); }
+}
+
+/**
+ * `want` boards from self-play, `games` games at once, each board with its target (the module's comment) and, for a
+ * share of them, a lookahead target. Games start as `examplesFromPlay`'s do: any horizon from 1 to 130 lines, from an
+ * empty board, a well or rubble. When `want` is reached the games are not ended but paused: what each has played since
+ * the last pause is given its targets, its last board bootstrapping as a game's last board does, and the next call
+ * goes on from there.
+ */
+export async Examples generate(Device d, ValueNet net, Pieces rng, i32 want, i32 games, Play x, Actors actors) {
+  i32 h = net.config.heads;
+  Examples out = Examples.create();
+  Vec<Game> playing = actors.playing;
+  // Games paused whose last board still needs its exact bootstrap.
+  Vec<Game> stopped = Vec.create();
+  // Boards played since the last pause in games still going: with `out`, what counts against `want`.
+  i32 held = 0;
+  while (out.len() + held < want) {
+    while (playing.len() < games) {
+      i32 lines = 1 + ((rng.uniform() * 130.0).floor() as~ i32);
+      if (rng.uniform() < 0.3) { lines = 130; }
+      playing.push(Game(startingBoard(rng, lines), false, 0.0, Vec.create(), Vec.create(), Vec.create(), Vec.create()));
+    }
+    // Each game's placements of its piece, and — when its board bootstraps exactly — every other piece's too.
+    Vec<Board> all = Vec.create();
+    Vec<Game> moving = Vec.create();
+    Vec<i32[]> spans = Vec.create();
+    Vec<i32> drawn = Vec.create();
+    Vec<Game> next = Vec.create();
+    for (i32 i = 0; i < playing.len(); i++) {
+      Game g = playing.get(i);
+      i32 piece = rng.next();
+      bool every = g.exactNow && g.seq.len() > 0;
+      i32[] span = i32[].filled(PIECE_COUNT + 1, 0);
+      for (i32 p = 0; p < PIECE_COUNT; p++) {
+        span[p] = all.len();
+        if (every || p == piece) { for (Board c in g.b.choices(p)) { all.push(c); } }
+      }
+      span[PIECE_COUNT] = all.len();
+      moving.push(g);
+      spans.push(span);
+      drawn.push(piece);
+    }
+    Board[] flat = all.toArray();
+    f32[] v = await valueAll(d, net, flat);
+    // The lookahead player's choice, for the games it moves: their drawn piece's placements, valued a piece deeper.
+    f32[][] looked = f32[][]();
+    bool[] explored = bool[].filled(moving.len(), false);
+    for (i32 m = 0; m < moving.len(); m++) { explored[m] = rng.uniform() < x.epsilon; }
+    if (x.look > 0) {
+      Vec<Board[]> sets = Vec.create();
+      Vec<f32[]> vs = Vec.create();
+      for (i32 m = 0; m < moving.len(); m++) {
+        i32[] span = spans.get(m);
+        i32 p = drawn.get(m);
+        if (explored[m] || span[p + 1] == span[p]) { continue; }
+        Board[] cs = part(flat, span[p], span[p + 1]);
+        sets.push(cs);
+        vs.push(finals(cs, part32(v, span[p] * h, span[p + 1] * h), h, 0));
+      }
+      looked = await lookValues(d, net, sets.toArray(), vs.toArray(), x.look, 1);
+    }
+    i32 lk = 0;
+    for (i32 m = 0; m < moving.len(); m++) {
+      Game g = moving.get(m);
+      i32[] span = spans.get(m);
+      i32 piece = drawn.get(m);
+      bool every = g.exactNow && g.seq.len() > 0;
+      f64 exactB = 0.0;
+      if (every) {
+        f64 total = 0.0;
+        for (i32 p = 0; p < PIECE_COUNT; p++) {
+          f64 best = 0.0;
+          for (i32 c = span[p]; c < span[p + 1]; c++) {
+            f64 q = gain(g.b, flat[c], x.bonus) + (v[c * h] as f64);
+            if (c == span[p] || q > best) { best = q; }
+          }
+          total += best;
+        }
+        exactB = total / (PIECE_COUNT as f64);
+      }
+      i32 from = span[piece];
+      i32 n = span[piece + 1] - from;
+      if (n == 0) {
+        // A piece with nowhere to go: the game ends where it stands.
+        if (g.seq.len() > 0) { g.base.push(every ? exactB : g.value); }
+        finish(g, out, x);
+        held -= g.seq.len();
+        continue;
+      }
+      f64[] q = f64[].filled(n, 0.0);
+      for (i32 c = 0; c < n; c++) { q[c] = gain(g.b, flat[from + c], x.bonus) + (v[(from + c) * h] as f64); }
+      i32 best = 0;
+      for (i32 c = 1; c < n; c++) { if (q[c] > q[best]) { best = c; } }
+      i32 pick = best;
+      if (explored[m]) {
+        pick = (rng.uniform() * (n as f64)).floor() as~ i32;
+      } else if (x.look > 0) {
+        pick = argmax(looked[lk]);
+        lk++;
+      }
+      if (g.seq.len() > 0) { g.base.push(every ? exactB : (explored[m] ? q[best] : q[pick])); }
+      Board chosen = flat[from + pick];
+      g.reward.push(gain(g.b, chosen, x.bonus));
+      g.random.push(explored[m]);
+      g.value = v[(from + pick) * h] as f64;
+      g.b = chosen;
+      g.seq.push(chosen);
+      g.exactNow = rng.uniform() < x.exact;
+      held++;
+      if (chosen.finished) {
+        finish(g, out, x);
+        held -= g.seq.len();
+        continue;
+      }
+      next.push(g);
+    }
+    playing = next;
+  }
+  // Pause the games still going: what each played since the last pause, with its targets, into `out`.
+  for (i32 i = 0; i < playing.len(); i++) {
+    Game g = playing.get(i);
+    if (g.seq.len() == 0) { continue; }
+    if (g.exactNow) { stopped.push(g); } else { finish(g, out, x); }
+  }
+  if (stopped.len() > 0) {
+    Board[] last = Board[].filled(stopped.len(), stopped.get(0).b);
+    for (i32 i = 0; i < stopped.len(); i++) { last[i] = stopped.get(i).b; }
+    f64[] t = await exactTargets(d, net, last, x.bonus);
+    for (i32 i = 0; i < stopped.len(); i++) {
+      stopped.get(i).base.push(t[i]);
+      finish(stopped.get(i), out, x);
+    }
+  }
+  for (i32 i = 0; i < playing.len(); i++) { restart(playing.get(i)); }
+  actors.playing = playing;
+  if (x.lookShare > 0.0) {
+    Vec<i32> which = Vec.create();
+    for (i32 i = 0; i < out.len(); i++) { if (rng.uniform() < x.lookShare) { which.push(i); } }
+    Board[] bs = Board[].filled(which.len(), Board.empty(1));
+    for (i32 i = 0; i < which.len(); i++) { bs[i] = out.boards.get(which.get(i)); }
+    f32[] lt = await lookTargets(d, net, bs, x.targetLook);
+    for (i32 i = 0; i < which.len(); i++) { out.looks.set(which.get(i), lt[i]); }
+  }
+  return out;
+}
+
+f32[] part32(f32[] v, i32 from, i32 to) {
+  f32[] out = f32[].filled(to - from, 0.0);
+  out.copyFrom(v, from, 0, to - from);
+  return out;
+}
+
+/** What a move from `from` to `to` scores, with the bonus if it does not top out. */
+f64 gain(Board from, Board to, f64 bonus) {
+  bool toppedOut = to.finished && to.linesCleared < to.linesMax;
+  return ((to.score - from.score) as f64) + (toppedOut ? 0.0 : bonus);
+}
+
+/** Each unfinished board of a game that has ended, with its target, into `out`: the last first. */
+void finish(Game g, Examples out, Play x) {
+  i32 n = g.seq.len();
+  f64 gk = 0.0;
+  for (i32 k = n - 1; k >= 0; k--) {
+    Board bk = g.seq.get(k);
+    if (bk.finished) {
+      gk = 0.0;
+      continue;
+    }
+    f64 b = k < g.base.len() ? g.base.get(k) : g.value;
+    if (k == n - 1 || g.random.get(k + 1)) {
+      gk = b;
+    } else {
+      gk = (1.0 - x.lambda) * b + x.lambda * (g.reward.get(k + 1) + gk);
+    }
+    out.add(bk, gk as~ f32);
+  }
+}
+
+/** A paused game's record emptied, its board kept: the next call's boards start from where it stands. */
+void restart(Game g) {
+  g.seq = Vec.create();
+  g.reward = Vec.create();
+  g.random = Vec.create();
+  g.base = Vec.create();
+}
+
+/** The exact bootstrap of each of `boards`: the mean over the seven pieces of the best `points + value`, nothing for a piece with nowhere to go. */
+async f64[] exactTargets(Device d, ValueNet net, Board[] boards, f64 bonus) {
+  i32 h = net.config.heads;
+  Vec<Board> all = Vec.create();
+  i32[] counts = i32[].filled(boards.len() * PIECE_COUNT, 0);
+  for (i32 k = 0; k < boards.len(); k++) {
+    for (i32 p = 0; p < PIECE_COUNT; p++) {
+      Board[] cs = boards[k].choices(p);
+      counts[k * PIECE_COUNT + p] = cs.len();
+      for (Board c in cs) { all.push(c); }
+    }
+  }
+  Board[] flat = all.toArray();
+  f32[] v = await valueAll(d, net, flat);
+  f64[] out = f64[].filled(boards.len(), 0.0);
+  i32 at = 0;
+  for (i32 k = 0; k < boards.len(); k++) {
+    f64 total = 0.0;
+    for (i32 p = 0; p < PIECE_COUNT; p++) {
+      f64 best = 0.0;
+      for (i32 c = 0; c < counts[k * PIECE_COUNT + p]; c++) {
+        f64 q = gain(boards[k], flat[at + c], bonus) + (v[(at + c) * h] as f64);
+        if (c == 0 || q > best) { best = q; }
+      }
+      total += best;
+      at += counts[k * PIECE_COUNT + p];
+    }
+    out[k] = total / (PIECE_COUNT as f64);
+  }
+  return out;
+}

@@ -1,0 +1,93 @@
+// What the engines think of every placement a person could have made: the values the player model is fitted to.
+//
+//     wac run --allow-read --allow-write tools/humanq.wac <positions.txt> <out.txt> <from> <to> [look]
+//
+// For positions `from` to `to` - 1 of `tools/humandata.wac`'s file, and each placement of the piece, in
+// `Board.placements` order, writes Q, the points still to come by an engine if the piece goes there: the points it
+// scores plus the value of the board it leaves.
+//
+//     <position> g <Q>...    the self-taught greedy network (`models/self-taught.weights`)
+//     <position> l <Q>...    turbostack's original model (`models/turbostack.weights`): its final score less the score now
+//     <position> d <Q>...    with `look` k > 0: one piece of lookahead by the dual network (`models/self-taught-dual.weights`)
+//                            for the k best placements by the greedy network — the mean over the seven next pieces of the
+//                            best that piece then allows, by the second head — and the rest shifted from their greedy
+//                            values (by the dual network's greedy head) by the k's mean difference, since a placement that far down is rarely chosen.
+//
+// Positions are independent, so a range can run in each of several processes and the outputs be joined in order.
+
+import { Sys } from "std";
+import { Buf } from "core";
+import { Device, Tensor, loadWeights } from "tensor";
+import { Board } from "../src/board.wac";
+import { LegacyScoreModel } from "../src/legacy.wac";
+import { lookahead } from "../src/lookahead.wac";
+import { finalScoresOf } from "../src/selfplay.wac";
+import { parseInt, splitOn } from "../src/text.wac";
+import { ValueConfig, ValueNet } from "../src/value.wac";
+
+string row(i32 index, string tag, f32[] q) {
+  string s = "\{index} \{tag}";
+  for (f32 v in q) { s += " \{((v as f64) * 10.0).round() / 10.0}"; }
+  return s;
+}
+
+export async i32 main(Sys sys) {
+  string[] a = sys.args();
+  Device d = Device.cpu();
+  ValueNet net = ValueNet.create(d, ValueConfig.standard());
+  loadWeights(net.params, (await sys.readFile("models/self-taught.weights")).orElse(u8[]())).unwrap();
+  LegacyScoreModel old = LegacyScoreModel.create(d);
+  loadWeights(old.params, (await sys.readFile("models/turbostack.weights")).orElse(u8[]())).unwrap();
+  i32 look = a.len() > 4 ? parseInt(a[4]) : 0;
+  ValueNet dual = ValueNet.create(d, ValueConfig.dual());
+  if (look > 0) { loadWeights(dual.params, (await sys.readFile("models/self-taught-dual.weights")).orElse(u8[]())).unwrap(); }
+  string[] lines = splitOn(string.fromBytes((await sys.readFile(a[0])).orElse(u8[]())), 10 as u8);
+  i32 from = parseInt(a[2]);
+  i32 to = parseInt(a[3]);
+  Buf out = Buf.create();
+  i32 index = 0;
+  i64 t0 = await sys.monotonicNanos();
+  for (string line in lines) {
+    if (line.len() == 0 || line.slice(0, 1) == "#") { continue; }
+    index++;
+    if (index - 1 < from || index - 1 >= to) { continue; }
+    string[] f = splitOn(line, 32 as u8);
+    Board b = Board.fromCompact(f[10], parseInt(f[7]));
+    b.linesCleared = parseInt(f[6]);
+    b.score = parseInt(f[8]);
+    b.tetrises = parseInt(f[9]);
+    Board[] cs = b.choices(parseInt(f[3]));
+    f32[] g = finalScoresOf(d, net, cs, 0);
+    Tensor lt = d.tidy(() => old.predict(d, cs));
+    f32[] l = lt.valuesNow();
+    lt.dispose();
+    for (i32 k = 0; k < cs.len(); k++) {
+      g[k] = ((g[k] as f64) - (b.score as f64)) as~ f32;
+      l[k] = ((l[k] as f64) - (b.score as f64)) as~ f32;
+    }
+    out.pushStr(row(index - 1, "g", g) + "\n" + row(index - 1, "l", l) + "\n");
+    if (look > 0) {
+      f32[] dg = finalScoresOf(d, dual, cs, 0);
+      f32[] v = lookahead(cs, dg, look, (Board[] bs) => finalScoresOf(d, dual, bs, 1));
+      f64 shift = 0.0;
+      i32 n = 0;
+      for (i32 k = 0; k < cs.len(); k++) {
+        if (v[k] > -1.0e29) {
+          shift += (v[k] as f64) - (dg[k] as f64);
+          v[k] = ((v[k] as f64) - (b.score as f64)) as~ f32;
+          n++;
+        }
+      }
+      shift = shift / (n as f64);
+      for (i32 k = 0; k < cs.len(); k++) { if (v[k] <= -1.0e29) { v[k] = ((dg[k] as f64) - (b.score as f64) + shift) as~ f32; } }
+      out.pushStr(row(index - 1, "d", v) + "\n");
+    }
+    if ((index - from) % 500 == 0) {
+      f64 s = ((await sys.monotonicNanos()) - t0) as~ f64 / 1e9;
+      sys.log("humanq: \{index - from} positions in \{s.round()} s");
+    }
+  }
+  auto w = await sys.writeFile(a[1], out.take());
+  if (w.isErr()) { sys.log("humanq: " + w.err()!); return 1; }
+  return 0;
+}

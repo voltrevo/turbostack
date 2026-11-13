@@ -1,0 +1,1094 @@
+// The coach: you play, and the self-taught model says what it makes of every move — how it ranks among the placements
+// the piece had, how many points it expects it to cost against the move it would have made, and which move that was.
+//
+// Built by `sh tools/site.sh`, which first writes the model's weights into `web/dualweights.wac` (`tools/embed.wac`):
+// the page carries them, so the one file works served from anywhere or opened from a disk. The address's `#game-<n>`
+// is the piece sequence, as on the duel page, so a game can be replayed and compared.
+//
+// **Choosing a placement.** The game is placements, not falling pieces, so there is no gravity and no clock: the ghost
+// is the legal placement whose cells' centre is nearest the pointer, and pointing under an overhang finds the tucks
+// there. Shift or the wheel steps through the next-nearest; a click or Space drops it. A finger drags the ghost, drawn
+// a little above it so the finger does not hide it, and lifting leaves it there for the Drop button.
+//
+// **The judge** is the dual network looking one piece ahead: the three placements it values most greedily, and yours,
+// each valued as the mean over the seven pieces that could come next of the best that piece then allows. Placements
+// it did not look ahead from keep their greedy value. A move's cost is the best of those values less yours — expected
+// points, not luck: both are valued on the same position, so the pieces still to come cancel out.
+//
+// **Every move is kept** in the browser's own storage, one file per game, with every placement's value, so a model of
+// the player can be fitted to them later; Download my data saves them all as JSON lines — or, where the browser gives
+// a page opened from a file no storage, this game's. Each line also says how the move was chosen (`hint`, `input`,
+// `step`), so a fit can set aside hinted moves and tell the interface's effect from the player's. Delete my data
+// removes every game this browser has kept.
+//
+// **Sounds and music** (`web/sounds.wac`) are made by the page itself: a thud as a piece lands, a run when lines clear,
+// a bell for the model's own move and a droop for a costly one, over a quiet loop. Sound and Music turn them off (M
+// for the music), and the choice is kept with the moves.
+//
+// **Nothing leaves the browser.** The page talks to no server: it shows a start screen saying what the coach is, then
+// the game, and whatever it keeps stays in this browser's storage, where the player can download or delete it. Sharing
+// moves with a server, to help train future models, is planned, but it is not part of this version.
+
+import { Page, Element, ElementEvent, Listen, Sound, Voice } from "web";
+import { Result, Vec } from "core";
+import { Device, loadWeights } from "tensor";
+import { Board, Placement, pieceName, MIN_TOP } from "../src/board.wac";
+import { Pieces } from "../src/game.wac";
+import { lookahead } from "../src/lookahead.wac";
+import { finalScoresOf } from "../src/selfplay.wac";
+import { ValueConfig, ValueNet } from "../src/value.wac";
+import { parseInt } from "../src/text.wac";
+import { dualWeights } from "./dualweights.wac";
+import { RATE, landing, tick, clearing, bell, droop, fall, music } from "./sounds.wac";
+
+/** Pixels per cell on the board, and on the small board that shows a move judged. */
+static i32 CELL = 24;
+static i32 SMALL = 16;
+
+/** Each piece's colour, then the empty cell's, and the empty cell's in the five rows nobody may build into. */
+static i32[] COLOURS = [
+  0x3fc1d9, 0xe8c547, 0x4a7bd9, 0xe8893c, 0x5cbf5a, 0xd9534f, 0x9b6ad6,
+  0x22252b, 0x3a2125,
+];
+
+/**
+ * The board is drawn from row 1: no placement reaches row 0. The worst case is an I standing on a column 15 high,
+ * which fills rows 1 to 4 — every other piece stops at row 2 or below — so four of the five red rows are all a
+ * game-ending move ever needs to show.
+ */
+static i32 TOP_ROW = 1;
+static i32 ROWS = 19;
+/** The red of the line under the red zone, and of a ghost that would end the game. */
+static i32 ENDING = 0xe5534b;
+
+/** How far above a finger its ghost is aimed, in cells. */
+static f64 FINGER_LIFT = 2.0;
+
+/** How many of the nearest placements Shift, the wheel and the Cycle button step through. */
+static i32 NEARBY = 5;
+
+/** A move's grade by the expected points it cost: the bounds are first guesses, to be set from measured play. */
+static f64[] GRADE_BOUNDS = [15.0, 100.0, 300.0, 800.0];
+static string[] GRADE_NAMES = ["Excellent", "Good", "Inaccuracy", "Mistake", "Blunder"];
+static string[] GRADE_CLASSES = ["great", "good", "meh", "bad", "awful"];
+
+/** A move you made, and once judged, what the model made of it. */
+struct Move {
+  i32 number;
+  Board before;
+  u8[] colours;
+  i32 piece;
+  Placement[] ps;
+  Board[] cs;
+  /** Each placement's greedy value: its points plus head 0's value of the board it leaves. */
+  f32[] q;
+  /** Each placement's value looking a piece ahead, or `NONE` where the judge did not look. */
+  f32[] la;
+  i32 choice;
+  /** How long you took over it, in milliseconds. */
+  f64 ms;
+  /**
+   * How it was chosen, as the log's fields: whether the hint was showing (a hinted move is not all the player's own),
+   * the mouse or a finger, and which of the nearest it was (0 the nearest, more after Shift, the wheel or Next), so a
+   * player model can tell what the interface did from what the player did.
+   */
+  string how;
+  bool judged;
+  i32 best;
+  f64 loss;
+  i32 rank;
+}
+
+static f32 NONE = -1.0e30;
+
+/** Base64 to bytes, for the weights the page carries. */
+u8[] unbase64(string s) {
+  u8[] c = s.toBytes();
+  i32[] value = i32[].filled(256, -1);
+  u8[] digits = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".toBytes();
+  for (i32 k = 0; k < 64; k++) { value[digits[k] as i32] = k; }
+  i32 pad = 0;
+  while (pad < c.len() && c[c.len() - 1 - pad] == 61) { pad++; }
+  u8[] out = u8[].filled((c.len() / 4) * 3 - pad, 0 as u8);
+  i32 o = 0;
+  for (i32 i = 0; i + 3 < c.len(); i += 4) {
+    i32 v = 0;
+    for (i32 k = 0; k < 4; k++) { v = (v << 6) | (value[c[i + k] as i32] < 0 ? 0 : value[c[i + k] as i32]); }
+    for (i32 k = 0; k < 3; k++) {
+      if (o < out.len()) { out[o] = ((v >> (16 - 8 * k)) & 255) as~ u8; }
+      o++;
+    }
+  }
+  return out;
+}
+
+/** The value the judge goes by: looking ahead where it did, greedy where it did not. */
+f32 judgeValue(Move m, i32 k) { return m.la[k] > NONE ? m.la[k] : m.q[k]; }
+
+void showLink(Element in, string href, string label) {
+  Element a = in.append("a");
+  a.attr("href", href);
+  a.text(label);
+}
+
+/** Whether a board left by a placement has ended the game short of the last line: built into the red zone. */
+bool endsGame(Board after) { return after.finished && after.linesRemaining() > 0; }
+
+string grade(Move m) {
+  if (m.choice == m.best) { return "Best move"; }
+  for (i32 k = 0; k < GRADE_BOUNDS.len(); k++) { if (m.loss < GRADE_BOUNDS[k]) { return GRADE_NAMES[k]; } }
+  return GRADE_NAMES[GRADE_NAMES.len() - 1];
+}
+
+string gradeClass(Move m) {
+  if (m.choice == m.best) { return "great"; }
+  for (i32 k = 0; k < GRADE_BOUNDS.len(); k++) { if (m.loss < GRADE_BOUNDS[k]) { return GRADE_CLASSES[k]; } }
+  return GRADE_CLASSES[GRADE_CLASSES.len() - 1];
+}
+
+string thousands(i32 v) {
+  string sign = v < 0 ? "-" : "";
+  string s = "\{v < 0 ? -v : v}";
+  string out = "";
+  while (s.len() > 3) {
+    out = "," + s.slice(s.len() - 3, s.len()) + out;
+    s = s.slice(0, s.len() - 3);
+  }
+  return sign + s + out;
+}
+
+i32 whole(f64 v) { return v.round() as~ i32; }
+
+string ordinal(i32 n) {
+  i32 t = n % 100;
+  if (t >= 11 && t <= 13) { return "\{n}th"; }
+  i32 u = n % 10;
+  return u == 1 ? "\{n}st" : (u == 2 ? "\{n}nd" : (u == 3 ? "\{n}rd" : "\{n}th"));
+}
+
+/** A placement's cells on the board, as `i * 10 + j`: those above the top are left out. */
+i32[] cellsOf(Placement p) {
+  Vec<i32> out = Vec.create();
+  for (i32 k = 0; k < 16; k++) {
+    if ((p.grid & (1 << (15 - k))) == 0) { continue; }
+    i32 i = p.row + k / 4;
+    i32 j = p.col + k % 4;
+    if (i >= 0 && i < 20 && j >= 0 && j < 10) { out.push(i * 10 + j); }
+  }
+  return out.toArray();
+}
+
+/** The centre of a placement's cells, in cells: row then column, the middle of a cell at + 0.5. */
+f64[] centreOf(Placement p) {
+  f64 si = 0.0;
+  f64 sj = 0.0;
+  f64 n = 0.0;
+  for (i32 k = 0; k < 16; k++) {
+    if ((p.grid & (1 << (15 - k))) == 0) { continue; }
+    si += ((p.row + k / 4) as f64) + 0.5;
+    sj += ((p.col + k % 4) as f64) + 0.5;
+    n += 1.0;
+  }
+  return [si / n, sj / n];
+}
+
+/** The colours after `p`, a piece of kind `piece`: its cells filled, then full rows removed as the board removes them. */
+u8[] coloured(u8[] before, Placement p, i32 piece) {
+  u8[] c = u8[].filled(200, 0 as u8);
+  c.copyFrom(before, 0, 0, 200);
+  for (i32 x in cellsOf(p)) { c[x] = (piece + 1) as~ u8; }
+  for (i32 i = 0; i < 20; i++) {
+    bool full = true;
+    for (i32 j = 0; j < 10; j++) { if (c[i * 10 + j] == 0) { full = false; } }
+    if (!full) { continue; }
+    for (i32 r = i; r >= 1; r--) { for (i32 j = 0; j < 10; j++) { c[r * 10 + j] = c[(r - 1) * 10 + j]; } }
+    for (i32 j = 0; j < 10; j++) { c[j] = 0 as u8; }
+  }
+  return c;
+}
+
+/**
+ * The board drawn at `cell` pixels a cell: `colours`, then `solid` filled in `piece`'s colour, `ghost` in a paler one,
+ * and `outline` traced in white — the move you are choosing, and the model's. `dim` fades the stack, so a move judged
+ * stands out from the board it was made on.
+ */
+u8[] render(u8[] colours, i32 cell, i32 piece, i32[] solid, i32[] ghost, i32[] outline, bool dim, bool ending) {
+  i32[] mark = i32[].filled(200, 0);
+  for (i32 x in ghost) { mark[x] = 1; }
+  for (i32 x in solid) { mark[x] = 2; }
+  bool[] traced = bool[].filled(200, false);
+  for (i32 x in outline) { traced[x] = true; }
+  i32 w = 10 * cell;
+  i32 h = ROWS * cell;
+  i32 edge = cell >= 20 ? 3 : 2;
+  u8[] px = u8[].filled(w * h * 4, 255 as u8);
+  for (i32 y = 0; y < h; y++) {
+    for (i32 x = 0; x < w; x++) {
+      i32 i = y / cell + TOP_ROW;
+      i32 j = x / cell;
+      i32 at = i * 10 + j;
+      i32 v = colours[at] as i32;
+      i32 empty = i < MIN_TOP ? COLOURS[8] : COLOURS[7];
+      i32 rgb = v > 0 ? COLOURS[v - 1] : empty;
+      if (mark[at] == 2) { rgb = COLOURS[piece]; }
+      i32 r = (rgb >> 16) & 255;
+      i32 g = (rgb >> 8) & 255;
+      i32 b = rgb & 255;
+      if (dim && v > 0 && mark[at] == 0) {
+        r = (r + ((empty >> 16) & 255) * 3) / 4;
+        g = (g + ((empty >> 8) & 255) * 3) / 4;
+        b = (b + (empty & 255) * 3) / 4;
+      }
+      if (mark[at] == 1) {
+        // A ghost is the piece's colour half-way to the empty cell's — red when it would end the game.
+        i32 p = ending ? ENDING : COLOURS[piece];
+        r = (((p >> 16) & 255) * 3 + ((empty >> 16) & 255) * 2) / 5;
+        g = (((p >> 8) & 255) * 3 + ((empty >> 8) & 255) * 2) / 5;
+        b = ((p & 255) * 3 + (empty & 255) * 2) / 5;
+      }
+      bool filled = v > 0 || mark[at] > 0;
+      i32 cx = x % cell;
+      i32 cy = y % cell;
+      if (cx == cell - 1 || cy == cell - 1) {
+        r = filled ? r * 3 / 4 : r + 10;
+        g = filled ? g * 3 / 4 : g + 10;
+        b = filled ? b * 3 / 4 : b + 10;
+      }
+      // Inset a pixel, so a dark edge parts the outline from a white page where it meets the board's side.
+      bool inside = cx >= 1 && cy >= 1 && cx < cell - 2 && cy < cell - 2;
+      if (traced[at] && inside && (cx < 1 + edge || cy < 1 + edge || cx >= cell - 2 - edge || cy >= cell - 2 - edge)) {
+        r = 255;
+        g = 255;
+        b = 255;
+      }
+      // The line under the red zone: build above it and the game is over.
+      if (i == MIN_TOP && y % cell < 2) {
+        r = (ENDING >> 16) & 255;
+        g = (ENDING >> 8) & 255;
+        b = ENDING & 255;
+      }
+      i32 o = (y * w + x) * 4;
+      px[o] = r as~ u8;
+      px[o + 1] = g as~ u8;
+      px[o + 2] = b as~ u8;
+    }
+  }
+  return px;
+}
+
+/** The placements by how near their centres (`centres`, row then column for each) are to (`i`, `j`), nearest first. */
+i32[] nearestOrder(f64[] centres, f64 i, f64 j) {
+  i32 n = centres.len() / 2;
+  i32[] order = i32[].filled(n, 0);
+  f64[] dist = f64[].filled(n, 0.0);
+  for (i32 k = 0; k < n; k++) {
+    order[k] = k;
+    f64 di = centres[2 * k] - i;
+    f64 dj = centres[2 * k + 1] - j;
+    dist[k] = di * di + dj * dj;
+  }
+  for (i32 a = 1; a < n; a++) {
+    i32 x = order[a];
+    i32 b = a - 1;
+    while (b >= 0 && dist[order[b]] > dist[x]) {
+      order[b + 1] = order[b];
+      b--;
+    }
+    order[b + 1] = x;
+  }
+  return order;
+}
+
+/** The indices of the `k` largest of `v`, largest first — the first, on a tie. */
+i32[] topOf(f32[] v, i32 k) {
+  i32 n = k < v.len() ? k : v.len();
+  i32[] top = i32[].filled(n, 0);
+  bool[] taken = bool[].filled(v.len(), false);
+  for (i32 t = 0; t < n; t++) {
+    i32 best = -1;
+    for (i32 i = 0; i < v.len(); i++) { if (!taken[i] && (best < 0 || v[i] > v[best])) { best = i; } }
+    taken[best] = true;
+    top[t] = best;
+  }
+  return top;
+}
+
+/** The judge's look a piece ahead from `ks` of `choices`, by `deeper`, kept in `values`. */
+void lookFrom(Board[] choices, f32[] greedy, f32[] values, i32[] ks, fn<f32[](Board[])> deeper) {
+  Board[] sub = Board[].filled(ks.len(), choices[0]);
+  f32[] subQ = f32[].filled(ks.len(), 0.0);
+  for (i32 t = 0; t < ks.len(); t++) {
+    sub[t] = choices[ks[t]];
+    subQ[t] = greedy[ks[t]];
+  }
+  f32[] v = lookahead(sub, subQ, ks.len(), deeper);
+  for (i32 t = 0; t < ks.len(); t++) { values[ks[t]] = v[t]; }
+}
+
+/** Whether the judge has looked ahead from all three of the greedy best, as the hint waits for. */
+bool lookedAtTop(f32[] q, f32[] la) {
+  for (i32 x in topOf(q, 3)) { if (!(la[x] > NONE)) { return false; } }
+  return true;
+}
+
+/** The best placement by what the judge knows: looking ahead where it has, greedy where it has not. */
+i32 bestOf(f32[] q, f32[] la) {
+  i32 best = 0;
+  for (i32 k = 1; k < q.len(); k++) {
+    f32 vk = la[k] > NONE ? la[k] : q[k];
+    f32 vb = la[best] > NONE ? la[best] : q[best];
+    if (vk > vb) { best = k; }
+  }
+  return best;
+}
+
+Element stat(Element parent, string label) {
+  Element row = parent.append("div");
+  row.append("dt").text(label);
+  return row.append("dd");
+}
+
+static string STYLE = """
+  :root { color-scheme: dark; --bg: #121316; --card: #1b1d22; --rule: #2c2f36; --text: #eceae4; --muted: #9a988f; --accent: #5aa2f0;
+          --great: #4cc38a; --good: #8fc95a; --meh: #e3b341; --bad: #e8893c; --awful: #e5534b; }
+  @media (prefers-color-scheme: light) {
+    :root { color-scheme: light; --bg: #f6f5f1; --card: #ffffff; --rule: #e2e0d9; --text: #1b1b1a; --muted: #6b6a65; --accent: #2a78d6;
+            --great: #1f9d63; --good: #5f9e2f; --meh: #b7860b; --bad: #c8641a; --awful: #c93c37; }
+  }
+  * { box-sizing: border-box; }
+  .app { outline: none; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+         -webkit-text-size-adjust: 100%; }
+  main { max-width: 60rem; margin: 0 auto; padding: max(14px, env(safe-area-inset-top)) 12px calc(84px + env(safe-area-inset-bottom)); }
+  h1 { font-size: 1.3rem; margin: 2px 4px 2px; letter-spacing: -0.01em; }
+  .lede { color: var(--muted); margin: 0 4px 12px; font-size: .9rem; }
+  .layout { display: grid; grid-template-columns: 1fr; gap: 12px; justify-items: center; }
+  .boardcol { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  canvas { display: block; image-rendering: pixelated; border-radius: 6px; }
+  canvas.board { height: max(320px, min(calc(100svh - 190px), 600px)); width: auto; aspect-ratio: 10 / 19; touch-action: none; cursor: crosshair; }
+  .piece { color: var(--muted); font-size: .9rem; min-height: 1.4em; }
+  .piece b { color: var(--text); }
+  .quick { font-weight: 600; font-size: .95rem; min-height: 1.4em; }
+  .quick.great { color: var(--great); } .quick.good { color: var(--good); } .quick.meh { color: var(--meh); }
+  .quick.bad { color: var(--bad); } .quick.awful { color: var(--awful); }
+  .panel { width: 100%; max-width: 26rem; display: flex; flex-direction: column; gap: 10px; }
+  .card { background: var(--card); border: 1px solid var(--rule); border-radius: 14px; padding: 12px; }
+  .card h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  dl { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin: 0; }
+  dt { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+  dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 1.05rem; white-space: nowrap; }
+  .verdict { display: flex; gap: 12px; align-items: flex-start; }
+  .verdict canvas { width: 96px; height: 182px; flex: none; }
+  .grade { font-size: 1.25rem; font-weight: 700; margin: 0 0 2px; }
+  .grade.great { color: var(--great); } .grade.good { color: var(--good); } .grade.meh { color: var(--meh); }
+  .grade.bad { color: var(--bad); } .grade.awful { color: var(--awful); } .grade.wait { color: var(--muted); }
+  .detail { margin: 0; color: var(--muted); font-size: .88rem; }
+  .detail b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .legend { margin: 6px 0 0; color: var(--muted); font-size: .76rem; }
+  .worst { display: flex; flex-direction: column; gap: 4px; }
+  .worst button { text-align: left; min-height: 36px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .worst button.on { border-color: var(--accent); }
+  .empty { color: var(--muted); font-size: .88rem; margin: 0; }
+  .help { color: var(--muted); font-size: .82rem; margin: 0; }
+  .over { font-weight: 600; margin: 0; }
+  nav.top { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin: 4px 0 10px; }
+  nav.top a { margin-right: auto; display: inline-flex; align-items: center; min-height: 44px; box-sizing: border-box; padding: 0 14px; border-radius: 999px;
+              border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--card));
+              color: var(--accent); font-weight: 600; font-size: .85rem; text-decoration: none; white-space: nowrap; }
+  nav.top a:hover { background: var(--accent); color: #fff; }
+  nav.top button { height: 30px; font-size: .85rem; padding: 0 10px; }
+  .hidden { display: none; }
+  .saverow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .saverow .help { flex: 1 1 100%; margin: 0; }
+  .saverow .danger { color: var(--awful); }
+  .intro { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px;
+           background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(6px); }
+  .intro.hidden { display: none; }
+  .introcard { max-width: 30rem; background: var(--card); border: 1px solid var(--rule); border-radius: 18px; padding: 22px 22px 16px;
+               box-shadow: 0 20px 60px rgb(0 0 0 / .35); }
+  .introcard h2 { margin: 0 0 8px; font-size: 1.4rem; }
+  .introcard p { margin: 0 0 14px; }
+  .introbuttons { display: flex; gap: 10px; flex-wrap: wrap; }
+  .introbuttons > * { flex: 1 1 auto; white-space: nowrap; }
+  .introcard .aboutline { margin: 16px 0 0; padding: 10px 12px; border-radius: 12px; font-size: .9rem; color: var(--muted);
+                          background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
+  .introcard .aboutline a { display: block; color: var(--accent); font-weight: 700; font-size: 1rem; text-decoration: none; }
+  .saverow button { min-height: 36px; font-weight: 500; flex: none; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: color-mix(in srgb, var(--bg) 88%, transparent);
+         backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-top: 1px solid var(--rule);
+         padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+  .bar .inner { max-width: 60rem; margin: 0 auto; display: flex; gap: 8px; align-items: center; }
+  .bar .grow { flex: 1; }
+  button { font: inherit; font-weight: 600; min-height: 44px; border-radius: 12px; border: 1px solid var(--rule);
+           background: var(--card); color: var(--text); padding: 0 14px; touch-action: manipulation; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; min-width: 84px; }
+  button.on { color: var(--accent); border-color: var(--accent); }
+  @media (pointer: coarse) { .help { display: none; } .saverow .help { display: block; } }
+  @media (max-width: 520px) {
+    .lede { display: none; }
+    h1 { font-size: 1.1rem; margin-bottom: 8px; }
+    .bar .inner { gap: 6px; }
+    button { padding: 0 12px; }
+  }
+  @media (min-width: 760px) {
+    .layout { grid-template-columns: auto minmax(20rem, 26rem); justify-content: center; align-items: start; gap: 20px; }
+    canvas.board { height: max(400px, min(calc(100svh - 300px), 720px)); }
+    h1 { font-size: 1.5rem; }
+  }
+""";
+
+export async i32 main(Page page) {
+  page.title("turbostack coach");
+  Element root = page.root();
+  root.append("style").text(STYLE);
+  // Keys reach the focused element, so the whole page is one focusable element, focused from the start and again by
+  // any click in it — a button's included.
+  Element app = root.append("div");
+  app.attr("class", "app");
+  app.attr("tabindex", "-1");
+  Element main = app.append("main");
+  Element top = main.append("nav");
+  top.attr("class", "top");
+  // `tools/site.sh` writes the about page beside this one.
+  Element about = top.append("a");
+  about.attr("href", "about.html");
+  about.text("About this project →");
+  Element soundButton = top.append("button");
+  Element musicButton = top.append("button");
+  main.append("h1").text("Play, and see what the model thinks");
+  Element lede = main.append("p");
+  lede.attr("class", "lede");
+  lede.text("Every move is judged by the self-taught model looking one piece ahead: where yours ranks, the points it expects it to cost, and the move it would have made.");
+  Element layout = main.append("div");
+  layout.attr("class", "layout");
+
+  Element boardCol = layout.append("div");
+  boardCol.attr("class", "boardcol");
+  Element canvas = boardCol.append("canvas");
+  canvas.attr("class", "board");
+  Element pieceLine = boardCol.append("div");
+  pieceLine.attr("class", "piece");
+  // The last verdict in a line, under the board, where a phone's player is looking.
+  Element quick = boardCol.append("div");
+  quick.attr("class", "quick");
+  Element help = boardCol.append("p");
+  help.attr("class", "help");
+  help.text("Point to choose · Shift or scroll: nearby options · click, Space or Enter: drop · H: hint · M: music");
+
+  Element panel = layout.append("div");
+  panel.attr("class", "panel");
+  Element verdictCard = panel.append("section");
+  verdictCard.attr("class", "card");
+  Element verdictTitle = verdictCard.append("h2");
+  verdictTitle.text("Last move");
+  Element verdict = verdictCard.append("div");
+  verdict.attr("class", "verdict");
+  Element small = verdict.append("canvas");
+  Element verdictText = verdict.append("div");
+  Element gradeLine = verdictText.append("p");
+  gradeLine.attr("class", "grade wait");
+  gradeLine.text("Your move");
+  Element detail1 = verdictText.append("p");
+  detail1.attr("class", "detail");
+  detail1.text("Place a piece to see what the model makes of it.");
+  Element detail2 = verdictText.append("p");
+  detail2.attr("class", "detail");
+  Element legend = verdictText.append("p");
+  legend.attr("class", "legend");
+  legend.text("Filled: your move · outlined: the model's");
+
+  Element gameCard = panel.append("section");
+  gameCard.attr("class", "card");
+  gameCard.append("h2").text("This game");
+  Element stats = gameCard.append("dl");
+  Element scoreDd = stat(stats, "Score");
+  Element linesDd = stat(stats, "Lines");
+  Element expectDd = stat(stats, "Model expects");
+  Element lostDd = stat(stats, "Points lost");
+  Element accuracyDd = stat(stats, "Best moves");
+  Element piecesDd = stat(stats, "Pieces");
+  Element overLine = gameCard.append("p");
+  overLine.attr("class", "over");
+
+  Element worstCard = panel.append("section");
+  worstCard.attr("class", "card");
+  worstCard.append("h2").text("Costliest moves");
+  Element worstList = worstCard.append("div");
+  worstList.attr("class", "worst");
+
+  Element saveRow = panel.append("div");
+  saveRow.attr("class", "saverow");
+  Element saveLine = saveRow.append("p");
+  saveLine.attr("class", "help");
+  Element exportButton = saveRow.append("button");
+  exportButton.text("Download my data");
+  Element deleteButton = saveRow.append("button");
+  deleteButton.text("Delete my data");
+  deleteButton.attr("class", "danger");
+
+  // The start screen, shown on every visit: it says what the coach is and where the moves go, and its Play is the
+  // first touch browsers wait for before a page may make a sound.
+  Element intro = app.append("div");
+  intro.attr("class", "intro");
+  Element introCard = intro.append("div");
+  introCard.attr("class", "introcard");
+  introCard.append("h2").text("turbostack coach");
+  introCard.append("p").text("Play Tetris and see what a self-taught AI makes of every move: where yours ranks among the places the piece could go, how many points it expects it to cost, and the move it would have made.");
+  introCard.append("p").text("Your moves are kept in this browser and sent nowhere. You can download or delete them at any time.");
+  Element introButtons = introCard.append("div");
+  introButtons.attr("class", "introbuttons");
+  Element introPlay = introButtons.append("button");
+  introPlay.attr("class", "primary");
+  introPlay.text("Play");
+  Element introAbout = introCard.append("p");
+  introAbout.attr("class", "aboutline");
+  showLink(introAbout, "about.html", "About this project →");
+  introAbout.appendText("How the AI taught itself, and how it was built in wac.");
+
+  // Asked the first time a move would end the game, whether or not anywhere else was left: the question gives nothing
+  // away about the position, it only makes the rule plain.
+  Element redAsk = app.append("div");
+  redAsk.attr("class", "intro hidden");
+  Element redCard = redAsk.append("div");
+  redCard.attr("class", "introcard");
+  redCard.append("h2").text("This ends the game");
+  redCard.append("p").text("Nothing may rest in the red zone at the top of the board. A piece that ends up there, even in part, finishes the game on the spot.");
+  Element redButtons = redCard.append("div");
+  redButtons.attr("class", "introbuttons");
+  Element redBack = redButtons.append("button");
+  redBack.attr("class", "primary");
+  redBack.text("Choose another place");
+  Element redEnd = redButtons.append("button");
+  redEnd.text("End the game");
+
+  Element bar = app.append("div");
+  bar.attr("class", "bar");
+  Element inner = bar.append("div");
+  inner.attr("class", "inner");
+  Element dropButton = inner.append("button");
+  dropButton.attr("class", "primary");
+  dropButton.text("Drop");
+  Element cycleButton = inner.append("button");
+  cycleButton.text("Next");
+  Element hintButton = inner.append("button");
+  hintButton.text("Hint");
+  inner.append("div").attr("class", "grow");
+  Element newButton = inner.append("button");
+  newButton.text("New game");
+
+  // What the handlers ask for, which the loop below carries out.
+  bool fresh = true;
+  i32 seed = 0;
+  bool dropAsked = false;
+  bool hint = false;
+  bool dirty = true;
+  bool exportAsked = false;
+  // Delete my data asks twice: the first click arms it, the second deletes.
+  bool deleteArmed = false;
+  bool deleteAsked = false;
+  bool introOpen = true;
+  bool introPlayAsked = false;
+  // The red-zone question: asked once, then never again (kept in the browser's storage where there is some).
+  bool redOK = false;
+  bool redAskOpen = false;
+  i32 redAskK = -1;
+  bool redEndAsked = false;
+  bool redBackAsked = false;
+  // Sounds play once someone has touched the page (browsers allow nothing sooner), and the music starts then.
+  bool soundOn = true;
+  bool musicOn = true;
+  bool touched = false;
+  bool audioChanged = false;
+  // Which move the verdict shows: -1 the latest.
+  i32 reviewing = -1;
+  bool reviewChanged = false;
+  bool worstChanged = false;
+  // Where the ghost is aimed, in cells, and which of the nearest it is.
+  f64 aimI = -100.0;
+  f64 aimJ = -100.0;
+  i32 cycle = 0;
+  f64 cycleI = -100.0;
+  f64 cycleJ = -100.0;
+  // A mouse is the pointer heard moving with nothing pressed; a finger is first heard pressing.
+  i32 mousePointer = -2;
+  bool mouseDown = false;
+  i32 finger = -2;
+  bool aimedByFinger = false;
+  // The ghost stepped to another of the nearest, by Shift, the wheel or Next: a tick.
+  bool ticked = false;
+
+  fn<void(f64, f64)> aim = (f64 i, f64 j) => {
+    aimI = i;
+    aimJ = j;
+    f64 di = i - cycleI;
+    f64 dj = j - cycleJ;
+    if (di * di + dj * dj > 0.25) {
+      cycle = 0;
+      cycleI = i;
+      cycleJ = j;
+    }
+    dirty = true;
+  };
+  f64 cellPx = CELL as f64;
+  canvas.on("pointermove", Listen.none(), (ElementEvent e) => {
+    if (e.pointer == finger) {
+      aimedByFinger = true;
+      aim((e.y as f64) / cellPx + (TOP_ROW as f64) - FINGER_LIFT, (e.x as f64) / cellPx);
+      return;
+    }
+    if (!mouseDown) { mousePointer = e.pointer; }
+    if (e.pointer == mousePointer) {
+      aimedByFinger = false;
+      aim((e.y as f64) / cellPx + (TOP_ROW as f64), (e.x as f64) / cellPx);
+    }
+  });
+  canvas.on("pointerdown", Listen.keys("* capture"), (ElementEvent e) => {
+    if (e.pointer == mousePointer) {
+      mouseDown = true;
+      aimedByFinger = false;
+      aim((e.y as f64) / cellPx + (TOP_ROW as f64), (e.x as f64) / cellPx);
+    } else {
+      finger = e.pointer;
+      aimedByFinger = true;
+      aim((e.y as f64) / cellPx + (TOP_ROW as f64) - FINGER_LIFT, (e.x as f64) / cellPx);
+    }
+  });
+  canvas.on("pointerup", Listen.keys("* capture"), (ElementEvent e) => {
+    if (e.pointer == mousePointer && mouseDown) {
+      mouseDown = false;
+      dropAsked = true;
+    }
+    if (e.pointer == finger) { finger = -2; }
+  });
+  canvas.on("pointercancel", Listen.none(), (ElementEvent e) => {
+    if (e.pointer == finger) { finger = -2; }
+    mouseDown = false;
+  });
+  canvas.on("wheel", Listen.all(), (ElementEvent e) => {
+    i32 turned = parseInt(e.value.len() > 0 && e.value.slice(0, 1) == "-" ? e.value.slice(1, e.value.len()) : e.value);
+    if (turned == 0) { return; }
+    cycle = cycle + (e.value.slice(0, 1) == "-" ? NEARBY - 1 : 1);
+    ticked = true;
+    dirty = true;
+  });
+  // Space cannot be named among the keys whose default is prevented (they are split on spaces), so Enter drops too.
+  app.on("keydown", Listen.keys("Enter"), (ElementEvent e) => {
+    touched = true;
+    if (e.value == "Shift") { cycle++; ticked = true; dirty = true; }
+    else if (e.value == " " || e.value == "Enter") { dropAsked = true; }
+    else if (e.value == "h" || e.value == "H") { hint = !hint; dirty = true; }
+    else if (e.value == "m" || e.value == "M") { musicOn = !musicOn; audioChanged = true; }
+  });
+  app.on("pointerdown", Listen.none(), (ElementEvent e) => { touched = true; });
+  dropButton.on("click", Listen.none(), (ElementEvent e) => { dropAsked = true; });
+  cycleButton.on("click", Listen.none(), (ElementEvent e) => { cycle++; ticked = true; dirty = true; });
+  soundButton.on("click", Listen.none(), (ElementEvent e) => { soundOn = !soundOn; audioChanged = true; });
+  musicButton.on("click", Listen.none(), (ElementEvent e) => { musicOn = !musicOn; audioChanged = true; });
+  hintButton.on("click", Listen.none(), (ElementEvent e) => { hint = !hint; dirty = true; });
+  newButton.on("click", Listen.none(), (ElementEvent e) => { fresh = true; seed = 0; });
+  exportButton.on("click", Listen.none(), (ElementEvent e) => { exportAsked = true; });
+  deleteButton.on("click", Listen.none(), (ElementEvent e) => {
+    if (deleteArmed) { deleteAsked = true; }
+    deleteArmed = !deleteArmed;
+    deleteButton.text(deleteArmed ? "Click again to delete everything" : "Delete my data");
+  });
+  introPlay.on("click", Listen.none(), (ElementEvent e) => { introPlayAsked = true; });
+  redEnd.on("click", Listen.none(), (ElementEvent e) => { redEndAsked = true; });
+  redBack.on("click", Listen.none(), (ElementEvent e) => { redBackAsked = true; });
+
+  app.focus();
+  Device d = Device.cpu();
+  ValueNet net = ValueNet.create(d, ValueConfig.dual());
+  if (loadWeights(net.params, unbase64(dualWeights())).isErr()) {
+    detail1.text("The model's weights did not load, so there is nothing to judge with.");
+    return 1;
+  }
+  fn<f32[](Board[])> deeper = (Board[] bs) => finalScoresOf(d, net, bs, 1);
+
+  Sound landSound = page.sound(landing(), RATE);
+  Sound tickSound = page.sound(tick(), RATE);
+  Sound[] clearSounds = [page.sound(clearing(1), RATE), page.sound(clearing(2), RATE), page.sound(clearing(3), RATE),
+                         page.sound(clearing(4), RATE)];
+  Sound bellSound = page.sound(bell(), RATE);
+  Sound droopSound = page.sound(droop(false), RATE);
+  Sound blunderSound = page.sound(droop(true), RATE);
+  Sound fallSound = page.sound(fall(), RATE);
+  Sound loopSound = page.sound(music(), RATE);
+  Voice[] musicVoice = Voice[]();
+  auto audioPrefs = await page.sys.readFile("coach-audio.txt");
+  if (audioPrefs.isOk()) {
+    string prefs = string.fromBytes(audioPrefs.ok()!);
+    soundOn = prefs.indexOf("sound=0") < 0;
+    musicOn = prefs.indexOf("music=0") < 0;
+  }
+  redOK = (await page.sys.readFile("coach-redzone.txt")).isOk();
+  // Labels the buttons on the first pass of the loop.
+  audioChanged = true;
+  bool wasOver = false;
+
+  string where = page.location();
+  if (where.len() > 5 && where.slice(0, 5) == "game-") { seed = parseInt(where.slice(5, where.len())); }
+
+  // The game.
+  Board board = Board.empty(130);
+  u8[] colours = u8[].filled(200, 0 as u8);
+  Pieces pieces = Pieces.seeded(1);
+  bool over = false;
+  i32 piece = 0;
+  Placement[] ps = Placement[]();
+  Board[] cs = Board[]();
+  f32[] q = f32[]();
+  f32[] la = f32[]();
+  f64[] centres = f64[]();
+  f64 shownAt = 0.0;
+  Vec<Move> moves = Vec.create();
+  f64 lost = 0.0;
+  i32 bestCount = 0;
+  i32 judgedCount = 0;
+  // The move made but not yet judged: judged a frame after the next piece is shown, so play never waits for it.
+  i32 pending = -1;
+  // Where this game's moves are kept, and what has been written.
+  string file = "";
+  Vec<string> lines = Vec.create();
+  bool canSave = true;
+  i64 started = 0 as i64;
+  i32 gameSeed = 0;
+
+  fn<i32()> hovered = () => {
+    if (ps.len() == 0 || aimI < -50.0) { return -1; }
+    i32[] order = nearestOrder(centres, aimI, aimJ);
+    i32 span = order.len() < NEARBY ? order.len() : NEARBY;
+    return order[cycle % span];
+  };
+
+  while (true) {
+    if (fresh) {
+      fresh = false;
+      if (seed == 0) { seed = 1 + ((page.now() * 7919.0) % 999983.0).floor() as~ i32; }
+      page.go("game-\{seed}", false);
+      board = Board.empty(130);
+      colours = u8[].filled(200, 0 as u8);
+      pieces = Pieces.seeded(seed);
+      over = false;
+      moves = Vec.create();
+      lost = 0.0;
+      bestCount = 0;
+      judgedCount = 0;
+      pending = -1;
+      reviewing = -1;
+      lines = Vec.create();
+      started = (await page.sys.clock().nowMillis()).orElse(0 as i64);
+      file = "coach-\{started}-\{seed}.jsonl";
+      ps = Placement[]();
+      gradeLine.attr("class", "grade wait");
+      gradeLine.text("Your move");
+      detail1.text("Place a piece to see what the model makes of it.");
+      detail2.text("");
+      small.pixels(10 * SMALL, ROWS * SMALL, render(colours, SMALL, 0, i32[](), i32[](), i32[](), false, false));
+      overLine.text("");
+      quick.text("");
+      while (worstList.kids.len() > 0) { worstList.kidAt(0).remove(); }
+      gameSeed = seed;
+      seed = 0;
+      // The next piece.
+      piece = -1;
+    }
+
+    if (piece < 0 && !over) {
+      piece = pieces.next();
+      ps = board.placements(piece);
+      if (ps.len() == 0 || board.finished || board.maxHeight() > 15) {
+        over = true;
+        ps = Placement[]();
+      } else {
+        cs = Board[].filled(ps.len(), board);
+        for (i32 k = 0; k < ps.len(); k++) { cs[k] = board.after(ps[k]); }
+        q = finalScoresOf(d, net, cs, 0);
+        la = f32[].filled(ps.len(), NONE);
+        centres = f64[].filled(2 * ps.len(), 0.0);
+        for (i32 k = 0; k < ps.len(); k++) {
+          f64[] c = centreOf(ps[k]);
+          centres[2 * k] = c[0];
+          centres[2 * k + 1] = c[1];
+        }
+        cycle = 0;
+        shownAt = page.now();
+      }
+      dirty = true;
+    }
+
+    // The hint's look ahead, one placement a frame as the judging is, once the last move's verdict is in.
+    if (hint && !over && ps.len() > 0 && pending < 0) {
+      i32 hintNext = -1;
+      for (i32 x in topOf(q, 3)) { if (hintNext < 0 && !(la[x] > NONE)) { hintNext = x; } }
+      if (hintNext >= 0) {
+        lookFrom(cs, q, la, [hintNext], deeper);
+        dirty = true;
+      }
+    }
+
+    if (ticked) {
+      ticked = false;
+      if (soundOn) { tickSound.play(0.7); }
+    }
+    if (over && !wasOver && moves.len() > 0 && soundOn) { fallSound.play(1.0); }
+    wasOver = over;
+    if (audioChanged || (touched && musicOn && musicVoice.len() == 0)) {
+      if (musicOn && musicVoice.len() == 0 && touched) { musicVoice = [loopSound.loop(0.55)]; }
+      if (!musicOn && musicVoice.len() > 0) {
+        musicVoice[0].stop();
+        musicVoice = Voice[]();
+      }
+      if (audioChanged && canSave) {
+        string prefs = "sound=" + (soundOn ? "1" : "0") + " music=" + (musicOn ? "1" : "0");
+        await page.sys.writeFile("coach-audio.txt", prefs.toBytes());
+      }
+      audioChanged = false;
+      soundButton.text(soundOn ? "Sound on" : "Sound off");
+      soundButton.attr("class", soundOn ? "on" : "");
+      musicButton.text(musicOn ? "Music on" : "Music off");
+      musicButton.attr("class", musicOn ? "on" : "");
+    }
+
+    if (introPlayAsked) {
+      introPlayAsked = false;
+      introOpen = false;
+      intro.attr("class", "intro hidden");
+      app.focus();
+    }
+    if (deleteAsked) {
+      deleteAsked = false;
+      // This browser's games: every file the index names, and the index.
+      Result<u8[], string> index = await page.sys.readFile("coach-index.txt");
+      string names = string.fromBytes(index.orElse(u8[]()));
+      i32 from = 0;
+      for (i32 x = 0; x <= names.len(); x++) {
+        if (x < names.len() && names.slice(x, x + 1) != "\n") { continue; }
+        if (x > from) {
+          string gameFile = names.slice(from, x);
+          if ((await page.sys.files().remove(gameFile, false)).isErr()) { await page.sys.writeFile(gameFile, u8[]()); }
+        }
+        from = x + 1;
+      }
+      if ((await page.sys.files().remove("coach-index.txt", false)).isErr()) { await page.sys.writeFile("coach-index.txt", u8[]()); }
+      // This game's moves so far go too; what is played from here is kept as before.
+      lines = Vec.create();
+      saveLine.text("Deleted this browser's saved games.");
+    }
+
+    i32 forcedK = -1;
+    if (redBackAsked || redEndAsked) {
+      redAskOpen = false;
+      redAsk.attr("class", "intro hidden");
+      app.focus();
+      if (redEndAsked) {
+        redOK = true;
+        if (canSave) { await page.sys.writeFile("coach-redzone.txt", "asked".toBytes()); }
+        forcedK = redAskK;
+        dropAsked = true;
+      }
+      redBackAsked = false;
+      redEndAsked = false;
+    }
+    if (dropAsked && (introOpen || redAskOpen)) { dropAsked = false; }
+    if (dropAsked) {
+      dropAsked = false;
+      if (deleteArmed) {
+        deleteArmed = false;
+        deleteButton.text("Delete my data");
+      }
+      i32 k = forcedK >= 0 ? forcedK : hovered();
+      if (!over && k >= 0 && !redOK && endsGame(cs[k])) {
+        redAskOpen = true;
+        redAskK = k;
+        redAsk.attr("class", "intro");
+        k = -1;
+      }
+      if (!over && k >= 0) {
+        i32 span = ps.len() < NEARBY ? ps.len() : NEARBY;
+        string how = "\"hint\":\{hint},\"input\":\"\{aimedByFinger ? "touch" : "mouse"}\",\"step\":\{cycle % span}";
+        Move m = Move(moves.len() + 1, board, colours, piece, ps, cs, q, la, k, page.now() - shownAt, how, false, 0, 0.0, 0);
+        moves.push(m);
+        if (pending < 0) { pending = moves.len() - 1; }
+        colours = coloured(colours, ps[k], piece);
+        i32 cleared = cs[k].linesCleared - board.linesCleared;
+        if (soundOn) {
+          landSound.play(0.9);
+          if (cleared > 0) { clearSounds[(cleared > 4 ? 4 : cleared) - 1].play(1.0); }
+        }
+        board = cs[k];
+        if (board.finished) { over = true; }
+        piece = -1;
+        reviewing = -1;
+        continue;
+      }
+    }
+
+    if (dirty) {
+      dirty = false;
+      i32 k = over ? -1 : hovered();
+      i32 best = hint && !over && ps.len() > 0 && lookedAtTop(q, la) ? bestOf(q, la) : -1;
+      i32[] ghost = k >= 0 ? cellsOf(ps[k]) : i32[]();
+      i32[] outline = best >= 0 ? cellsOf(ps[best]) : i32[]();
+      bool ending = k >= 0 && endsGame(cs[k]);
+      canvas.pixels(10 * CELL, ROWS * CELL, render(colours, CELL, piece < 0 ? 0 : piece, i32[](), ghost, outline, false, ending));
+      if (over) {
+        pieceLine.text("");
+      } else if (k >= 0) {
+        // The live estimate is the greedy one: looking ahead from every placement as the pointer moves would lag.
+        string verdictNow = best >= 0 ? (k == best ? " · the model's choice" : " · the model prefers the outline") : "";
+        pieceLine.text("Piece \{pieceName(piece)} · \{ps.len()} placements" + (ending ? " · in the red zone: ends the game" : "") + verdictNow);
+      } else {
+        pieceLine.text("Piece \{pieceName(piece)} · \{ps.len()} placements");
+      }
+      hintButton.attr("class", hint ? "on" : "");
+      scoreDd.text(thousands(board.score));
+      linesDd.text("\{board.linesCleared}/130");
+      piecesDd.text("\{moves.len()}");
+      lostDd.text(judgedCount == 0 ? "—" : thousands(whole(lost)));
+      accuracyDd.text(judgedCount == 0 ? "—" : "\{whole(100.0 * (bestCount as f64) / (judgedCount as f64))}%");
+      if (over) {
+        bool cleared = board.linesCleared >= 130;
+        overLine.text((cleared ? "Finished all 130 lines" : "Topped out after \{moves.len()} pieces")
+                      + " — final score \{thousands(board.score)}.");
+      }
+    }
+
+    // **Judged one placement a frame**: each look ahead runs the model over every placement of every next piece, and
+    // the page answers nothing while it runs, so between them the ghost follows the pointer and a drop is taken.
+    // A drop made meanwhile waits its turn: moves are judged in order, and `pending` is the oldest not yet judged.
+    i32 lookNext = -1;
+    if (pending >= 0) {
+      Move j = moves.get(pending);
+      for (i32 x in topOf(j.q, 3)) { if (lookNext < 0 && !(j.la[x] > NONE)) { lookNext = x; } }
+      if (lookNext < 0 && !(j.la[j.choice] > NONE)) { lookNext = j.choice; }
+      if (lookNext >= 0) { lookFrom(j.cs, j.q, j.la, [lookNext], deeper); }
+    }
+    if (pending >= 0 && lookNext < 0) {
+      Move m = moves.get(pending);
+      pending = pending + 1 < moves.len() ? pending + 1 : -1;
+      i32 best = bestOf(m.q, m.la);
+      m.best = best;
+      f32 mine = judgeValue(m, m.choice);
+      m.loss = (judgeValue(m, best) as f64) - (mine as f64);
+      if (m.loss < 0.0) { m.loss = 0.0; }
+      i32 rank = 1;
+      for (i32 x = 0; x < m.q.len(); x++) { if (judgeValue(m, x) > mine) { rank++; } }
+      m.rank = rank;
+      m.judged = true;
+      lost += m.loss;
+      judgedCount++;
+      if (m.choice == m.best) { bestCount++; }
+      if (soundOn && m.choice == m.best) { bellSound.play(0.9); }
+      else if (soundOn && m.loss >= GRADE_BOUNDS[3]) { blunderSound.play(0.9); }
+      else if (soundOn && m.loss >= GRADE_BOUNDS[2]) { droopSound.play(0.8); }
+      expectDd.text(thousands(whole(mine as f64)));
+      quick.attr("class", "quick " + gradeClass(m));
+      quick.text("Move \{m.number}: " + grade(m) + (m.choice == m.best ? "" : " · −\{thousands(whole(m.loss))}"));
+      reviewChanged = true;
+      dirty = true;
+
+      // Kept: the position, every placement's values, your choice and how long it took.
+      string qs = "";
+      for (i32 x = 0; x < m.q.len(); x++) { qs += (x > 0 ? "," : "") + "\{whole(m.q[x] as f64)}"; }
+      string las = "";
+      for (i32 x = 0; x < m.la.len(); x++) {
+        if (!(m.la[x] > NONE)) { continue; }
+        las += (las.len() > 0 ? "," : "") + "[\{x},\{whole(m.la[x] as f64)}]";
+      }
+      lines.push("{\"v\":1,\"start\":\{started},\"seed\":\{gameSeed},\"move\":\{m.number},\"piece\":\{m.piece},"
+                 + "\"board\":\"\{m.before.compact()}\",\"lines\":\{m.before.linesCleared},\"score\":\{m.before.score},"
+                 + "\"choice\":\{m.choice},\"best\":\{m.best},\"ms\":\{whole(m.ms)},\{m.how},\"q\":[\{qs}],\"la\":[\{las}]}");
+      if (canSave) {
+        string text = "";
+        for (i32 x = 0; x < lines.len(); x++) { text += lines.get(x) + "\n"; }
+        bool ok = (await page.sys.writeFile(file, text.toBytes())).isOk();
+        if (ok && lines.len() == 1) {
+          string index = (await page.sys.readFile("coach-index.txt")).isOk()
+                       ? string.fromBytes((await page.sys.readFile("coach-index.txt")).orElse(u8[]())) : "";
+          ok = (await page.sys.writeFile("coach-index.txt", (index + file + "\n").toBytes())).isOk();
+        }
+        if (!ok) { canSave = false; }
+        saveLine.text(canSave ? "Your moves are kept in this browser: \{judgedCount} this game." : "This browser gives the page no storage, so only this game's moves can be downloaded.");
+      }
+
+      worstChanged = true;
+    }
+
+    if (worstChanged) {
+      worstChanged = false;
+      // The costliest moves so far, to go back to.
+      Vec<i32> order = Vec.create();
+      for (i32 x = 0; x < moves.len(); x++) {
+        Move mx = moves.get(x);
+        if (!mx.judged || mx.loss < GRADE_BOUNDS[1]) { continue; }
+        i32 at = order.len();
+        order.push(x);
+        while (at > 0 && moves.get(order.get(at - 1)).loss < mx.loss) {
+          order.set(at, order.get(at - 1));
+          at--;
+        }
+        order.set(at, x);
+      }
+      while (worstList.kids.len() > 0) { worstList.kidAt(0).remove(); }
+      if (order.len() == 0) {
+        Element none = worstList.append("p");
+        none.attr("class", "empty");
+        none.text("Nothing costly yet.");
+      }
+      for (i32 t = 0; t < order.len() && t < 5; t++) {
+        i32 which = order.get(t);
+        Move mw = moves.get(which);
+        Element b = worstList.append("button");
+        b.text("Move \{mw.number} · −\{thousands(whole(mw.loss))} · \{grade(mw)}");
+        b.on("click", Listen.none(), (ElementEvent e) => { reviewing = which; reviewChanged = true; });
+      }
+    }
+
+    if (reviewChanged) {
+      reviewChanged = false;
+      i32 at = reviewing >= 0 ? reviewing : moves.len() - 1;
+      if (at >= 0 && moves.get(at).judged) {
+        Move m = moves.get(at);
+        verdictTitle.text(reviewing >= 0 ? "Move \{m.number}" : "Last move · \{m.number}");
+        gradeLine.attr("class", "grade " + gradeClass(m));
+        gradeLine.text(grade(m));
+        if (m.choice == m.best) {
+          detail1.text("The model would have played this too.");
+        } else {
+          detail1.text("\{ordinal(m.rank)} of \{m.ps.len()} placements · costs about \{thousands(whole(m.loss))} points");
+        }
+        detail2.text("Model expects \{thousands(whole(judgeValue(m, m.best) as f64))} after its move, \{thousands(whole(judgeValue(m, m.choice) as f64))} after yours · \{whole(m.ms / 100.0) / 10}.\{whole(m.ms / 100.0) % 10} s to decide");
+        i32[] outline = m.choice == m.best ? i32[]() : cellsOf(m.ps[m.best]);
+        small.pixels(10 * SMALL, ROWS * SMALL, render(m.colours, SMALL, m.piece, cellsOf(m.ps[m.choice]), i32[](), outline, true, false));
+        legend.text(m.choice == m.best ? "Filled: your move, and the model's" : "Filled: your move · outlined: the model's");
+      }
+    }
+
+    if (exportAsked) {
+      exportAsked = false;
+      string all = "";
+      Result<u8[], string> index = await page.sys.readFile("coach-index.txt");
+      if (index.isOk()) {
+        string names = string.fromBytes(index.orElse(u8[]()));
+        i32 from = 0;
+        for (i32 x = 0; x <= names.len(); x++) {
+          if (x < names.len() && names.slice(x, x + 1) != "\n") { continue; }
+          if (x > from) { all += string.fromBytes((await page.sys.readFile(names.slice(from, x))).orElse(u8[]())); }
+          from = x + 1;
+        }
+      }
+      // Without storage (a page opened from a file, in some browsers) this game's moves are all there is.
+      if (all.len() == 0) {
+        for (i32 x = 0; x < lines.len(); x++) { all += lines.get(x) + "\n"; }
+      }
+      if (all.len() == 0) {
+        saveLine.text("No moves kept yet to download.");
+      } else {
+        page.download("turbostack-moves.jsonl", all.toBytes());
+      }
+    }
+
+    await page.nextFrame();
+  }
+}

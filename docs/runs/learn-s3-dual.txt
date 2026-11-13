@@ -1,0 +1,25 @@
+config=dual from=runs/s3/model-80.weights iters=80 boards=32000 exactBoards=8000 games=256 window=64000 epochs=1 batch=256 lr=0.001 lrEnd=0.0001 eps=0.05 epsEnd=0.015 bonus=40 bonusUntil=0.25 lambda=0.9 lambdaEnd=0.5 exactFrom=0.35 exactFull=0.45 exactWindow=32000 exactEpochs=2 dualIters=24 dualBoards=3000 dualShare=0.333 dualLook=2 dualPlay=3 dualLr=0.0001 dualEpochs=2 dualWindow=18000 dualEps=0.015 dualLambda=0 checkEvery=4 checkGames=100 dualCheckGames=50 dualCheckLook=3 seed=1 start=80
+iteration 81 (lookahead): 3067 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 3067: error 86, held out 77, lookahead 95 (13.4 + 0.1 s, 14 s in all)
+iteration 82 (lookahead): 3066 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 6133: error 86, held out 73, lookahead 109 (19.5 + 0.2 s, 33 s in all)
+iteration 83 (lookahead): 3063 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 9196: error 89, held out 80, lookahead 124 (20.2 + 0.4 s, 54 s in all)
+iteration 84 (lookahead): 3063 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 12259: error 93, held out 80, lookahead 136 (23 + 0.5 s, 77 s in all); games 1001-1050 with lookahead: 26277 ± 705
+iteration 85 (lookahead): 3065 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 15324: error 98, held out 78, lookahead 131 (24.8 + 0.6 s, 103 s in all)
+iteration 86 (lookahead): 3060 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18384: error 97, held out 83, lookahead 122 (24.8 + 0.7 s, 128 s in all)
+iteration 87 (lookahead): 3062 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18379: error 94, held out 80, lookahead 121 (24.4 + 0.7 s, 153 s in all)
+iteration 88 (lookahead): 3059 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18372: error 91, held out 72, lookahead 122 (25.6 + 0.7 s, 180 s in all); games 1001-1050 with lookahead: 26463 ± 660
+iteration 89 (lookahead): 3059 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18368: error 92, held out 84, lookahead 106 (27.5 + 0.7 s, 208 s in all)
+iteration 90 (lookahead): 3063 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18368: error 96, held out 72, lookahead 112 (24.8 + 0.7 s, 233 s in all)
+iteration 91 (lookahead): 3063 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18366: error 96, held out 93, lookahead 127 (25.3 + 0.7 s, 259 s in all)
+iteration 92 (lookahead): 3061 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18367: error 94, held out 86, lookahead 157 (25.1 + 0.7 s, 285 s in all); games 1001-1050 with lookahead: 27479 ± 509
+iteration 93 (lookahead): 3060 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18365: error 92, held out 81, lookahead 117 (28.9 + 0.8 s, 315 s in all)
+iteration 94 (lookahead): 3058 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18364: error 89, held out 74, lookahead 118 (29.7 + 0.7 s, 345 s in all)
+iteration 95 (lookahead): 3056 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18361: error 89, held out 72, lookahead 119 (28.9 + 0.8 s, 375 s in all)
+iteration 96 (lookahead): 3055 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18353: error 92, held out 81, lookahead 123 (30.3 + 0.7 s, 406 s in all); games 1001-1050 with lookahead: 26998 ± 476
+iteration 97 (lookahead): 3061 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18351: error 89, held out 82, lookahead 119 (26.9 + 0.7 s, 434 s in all)
+iteration 98 (lookahead): 3057 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18347: error 88, held out 77, lookahead 122 (27.5 + 0.7 s, 462 s in all)
+iteration 99 (lookahead): 3055 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18342: error 90, held out 78, lookahead 105 (26.8 + 0.7 s, 489 s in all)
+iteration 100 (lookahead): 3053 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18337: error 88, held out 73, lookahead 104 (31.9 + 0.7 s, 522 s in all); games 1001-1050 with lookahead: 27604 ± 673
+iteration 101 (lookahead): 3061 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18342: error 88, held out 77, lookahead 117 (30.3 + 0.7 s, 553 s in all)
+iteration 102 (lookahead): 3062 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18349: error 89, held out 79, lookahead 113 (27 + 0.7 s, 581 s in all)
+iteration 103 (lookahead): 3060 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18348: error 91, held out 89, lookahead 124 (28.4 + 0.7 s, 610 s in all)
+iteration 104 (lookahead): 3053 boards, lr 0.0001, eps 0.015, λ 0, bonus 0, exact 100%; fit 18344: error 91, held out 91, lookahead 128 (27.8 + 0.7 s, 638 s in all); games 1001-1050 with lookahead: 25876 ± 693

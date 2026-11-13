@@ -1,0 +1,133 @@
+// The learning curve as a picture: `tools/humanfit.wac`'s `curve.tsv` drawn as one HTML page of SVG, no script.
+//
+//     wac run --allow-read --allow-write tools/humanchart.wac <curve.tsv> <out.html>
+//
+// Three panels against N, the player's moves trained on (a log scale, N = 0 at the left edge): held-out
+// log-likelihood a move, the rank correlation between predicted expected loss and the loss the player made, and the
+// share of the player's biggest 5% of losses among the 10% of positions the model flags.
+
+import { Sys } from "std";
+import { Buf, Vec, math } from "core";
+import { parseFloat, splitOn } from "../src/text.wac";
+
+struct Point {
+  string model;
+  f64 n;
+  f64 ll;
+  f64 rho;
+  f64 caught;
+}
+
+static string[] MODELS = ["uniform", "beta", "features", "look", "neural"];
+static string[] LABELS = ["uniform choice", "β only", "β + features", "β + features, lookahead Q", "neural ceiling (optimistic)"];
+static string[] COLOURS = ["#9aa0a6", "#4a7bd9", "#d9534f", "#e8893c", "#5cbf5a"];
+
+static f64 W = 380.0;
+static f64 H = 260.0;
+static f64 LEFT = 56.0;
+static f64 RIGHT = 12.0;
+static f64 TOP = 30.0;
+static f64 BOTTOM = 40.0;
+
+/** The x of N on the log axis, N = 0 drawn at 10. */
+f64 xOf(f64 n, f64 maxN) {
+  f64 v = n < 10.0 ? 10.0 : n;
+  return LEFT + (W - LEFT - RIGHT) * (math.log(v) - math.log(10.0)) / (math.log(maxN) - math.log(10.0));
+}
+
+f64 yOf(f64 v, f64 lo, f64 hi) { return TOP + (H - TOP - BOTTOM) * (hi - v) / (hi - lo); }
+
+string num(f64 v) { return "\{(v * 10.0).round() / 10.0}"; }
+
+string panel(Point[] pts, i32 which, string title, f64 lo, f64 hi, f64 tick, bool percent, f64 maxN) {
+  Buf s = Buf.create();
+  s.pushStr("<svg xmlns='http://www.w3.org/2000/svg' width='\{W}' height='\{H}' viewBox='0 0 \{W} \{H}' font-family='system-ui, sans-serif' font-size='11'>");
+  s.pushStr("<text x='\{LEFT}' y='16' font-size='13' font-weight='600'>\{title}</text>");
+  // Grid and axes.
+  for (f64 v = lo; v <= hi + 1.0e-9; v += tick) {
+    f64 y = yOf(v, lo, hi);
+    string label = percent ? "\{(v * 100.0).round()}%" : "\{(v * 100.0).round() / 100.0}";
+    s.pushStr("<line x1='\{LEFT}' x2='\{W - RIGHT}' y1='\{num(y)}' y2='\{num(y)}' stroke='#e5e7eb'/>");
+    s.pushStr("<text x='\{LEFT - 6.0}' y='\{num(y + 4.0)}' text-anchor='end' fill='#555'>\{label}</text>");
+  }
+  f64[] ticks = [0.0, 25.0, 100.0, 500.0, 2000.0, 7000.0];
+  for (f64 t in ticks) {
+    if (t > maxN) { continue; }
+    f64 x = xOf(t, maxN);
+    s.pushStr("<line x1='\{num(x)}' x2='\{num(x)}' y1='\{TOP}' y2='\{H - BOTTOM}' stroke='#f0f1f3'/>");
+    s.pushStr("<text x='\{num(x)}' y='\{H - BOTTOM + 14.0}' text-anchor='middle' fill='#555'>\{t.round()}</text>");
+  }
+  s.pushStr("<text x='\{(LEFT + W - RIGHT) / 2.0}' y='\{H - 8.0}' text-anchor='middle' fill='#333'>moves of the player's own play trained on (N, log scale)</text>");
+  for (i32 mi = 0; mi < MODELS.len(); mi++) {
+    Vec<Point> line = Vec.create();
+    for (Point p in pts) { if (p.model == MODELS[mi]) { line.push(p); } }
+    if (line.len() == 0) { continue; }
+    string path = "";
+    if (MODELS[mi] == "uniform") {
+      f64 v = which == 0 ? line.get(0).ll : (which == 1 ? line.get(0).rho : line.get(0).caught);
+      if (v < lo) {
+        s.pushStr("<text x='\{W - RIGHT}' y='\{H - BOTTOM - 6.0}' text-anchor='end' fill='\{COLOURS[mi]}'>uniform choice: \{(v * 100.0).round() / 100.0}, below the chart</text>");
+        continue;
+      }
+      f64 y = yOf(v, lo, hi);
+      s.pushStr("<line x1='\{LEFT}' x2='\{W - RIGHT}' y1='\{num(y)}' y2='\{num(y)}' stroke='\{COLOURS[mi]}' stroke-width='2' stroke-dasharray='5 4'/>");
+      continue;
+    }
+    for (i32 i = 0; i < line.len(); i++) {
+      Point p = line.get(i);
+      f64 v = which == 0 ? p.ll : (which == 1 ? p.rho : p.caught);
+      f64 x = xOf(p.n, maxN);
+      f64 y = yOf(v, lo, hi);
+      path += (i == 0 ? "M" : "L") + "\{num(x)} \{num(y)} ";
+      s.pushStr("<circle cx='\{num(x)}' cy='\{num(y)}' r='3' fill='\{COLOURS[mi]}'/>");
+    }
+    s.pushStr("<path d='\{path}' fill='none' stroke='\{COLOURS[mi]}' stroke-width='2'/>");
+  }
+  s.pushStr("</svg>");
+  return s.toStr();
+}
+
+export async i32 main(Sys sys) {
+  string[] a = sys.args();
+  Vec<Point> pts = Vec.create();
+  f64 maxN = 10.0;
+  for (string line in splitOn(string.fromBytes((await sys.readFile(a[0])).orElse(u8[]())), 10 as u8)) {
+    if (line.len() == 0) { continue; }
+    string[] f = splitOn(line, 9 as u8);
+    if (f[0] != "human") { continue; }
+    Point p = Point(f[1], parseFloat(f[2]), parseFloat(f[3]), parseFloat(f[6]), parseFloat(f[7]));
+    if (p.n > maxN) { maxN = p.n; }
+    pts.push(p);
+  }
+  auto w = await sys.writeFile(a[1], pageOf(pts.toArray(), maxN));
+  if (w.isErr()) { sys.log("humanchart: " + w.err()!); return 1; }
+  return 0;
+}
+
+/** The whole page. */
+u8[] pageOf(Point[] all, f64 maxN) {
+  f64 lo = 0.0;
+  f64 hi = -1.0e300;
+  // The fitted models' range: uniform choice is far below it and only labelled.
+  lo = 1.0e300;
+  for (Point p in all) {
+    if (p.model == "uniform" || p.model == "argmax") { continue; }
+    if (p.ll < lo) { lo = p.ll; }
+    if (p.ll > hi) { hi = p.ll; }
+  }
+  lo = (lo * 10.0).floor() / 10.0;
+  hi = (hi * 10.0).ceil() / 10.0;
+  Buf h = Buf.create();
+  h.pushStr("<!doctype html><html><head><meta charset='utf-8'><title>Player model learning curve</title>");
+  h.pushStr("<style>body{margin:12px;font-family:system-ui,sans-serif;color:#222;background:#fff} .row{display:flex;flex-wrap:wrap;gap:8px} .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;margin:6px 0 10px} .legend span{display:inline-flex;align-items:center;gap:5px} .sw{width:18px;height:3px;display:inline-block}</style></head><body>");
+  h.pushStr("<div class='legend'>");
+  for (i32 mi = 0; mi < MODELS.len(); mi++) {
+    h.pushStr("<span><i class='sw' style='background:\{COLOURS[mi]}'></i>\{LABELS[mi]}</span>");
+  }
+  h.pushStr("</div><div class='row'>");
+  h.pushStr(panel(all, 0, "Held-out log-likelihood a move", lo, hi, 0.1, false, maxN));
+  h.pushStr(panel(all, 1, "Predicted vs actual loss, Spearman ρ", 0.0, 0.6, 0.1, false, maxN));
+  h.pushStr(panel(all, 2, "Biggest 5% of mistakes in top 10% flagged", 0.0, 0.8, 0.1, true, maxN));
+  h.pushStr("</div><p style='font-size:12px;color:#555'>Trained on the player's first N moves in the order played; judged on 8 later, held-out games (2,700 moves). N = 0 is the prior alone. Dashed: uniform choice. The engine's argmax has no expected loss to rank by.</p></body></html>");
+  return h.take();
+}

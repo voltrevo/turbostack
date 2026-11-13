@@ -1,0 +1,28 @@
+// Which device a tool runs on: the CPU, or with `--metal` (or `--metal=<port>`) before its other arguments, a Metal
+// server — wac-tensor's `metal/server.swift`, running on this Mac, which the tool then needs `--allow-net` to reach.
+
+import { Sys } from "std";
+import { Result } from "core";
+import { Device, METAL_PORT, metalDevice } from "tensor";
+import { parseInt } from "./text.wac";
+
+export struct Chosen {
+  Device device;
+  /** Whether it is the Metal server, where only what can wait for its answers runs. */
+  bool gpu;
+  /** The tool's arguments, without the flag. */
+  string[] args;
+}
+
+export async Result<Chosen, string> chooseDevice(Sys sys) {
+  string[] a = sys.args();
+  if (a.len() == 0 || a[0].indexOf("--metal") != 0) { return Result.Ok(Chosen(Device.cpu(), false, a)); }
+  i32 port = a[0] == "--metal" ? METAL_PORT : parseInt(a[0].slice(8, a[0].len()));
+  string[] rest = string[].filled(a.len() - 1, "");
+  rest.copyFrom(a, 1, 0, a.len() - 1);
+  fn<void(string)> warn = (string s) => { sys.log(s); };
+  match (await metalDevice(sys.net(), "127.0.0.1", port, warn)) {
+    Ok(d): { return Result.Ok(Chosen(d, true, rest)); }
+    Err(why): { return Result.Err(why); }
+  }
+}

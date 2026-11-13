@@ -1,6 +1,6 @@
 // Play games with a model and report how it scores — the one number this project is measured by.
 //
-//     wac run --allow-read tools/evaluate.wac legacy|small|standard|large|dual|dual1 <weights> <from> <to> [lookahead]
+//     wac run --allow-read tools/evaluate.wac [--metal] legacy|small|standard|large|dual|dual1 <weights> <from> <to> [lookahead]
 //
 // With `lookahead` k, the player — either model — looks one piece further for its k best placements: each is valued as
 // what it scores plus the mean, over the seven pieces that could come next, of the best that piece then allows. A
@@ -14,26 +14,57 @@
 // Plays the games of seeds `from` to `to` (mulberry32 piece sequences, 130 lines each, greedy), printing one line a
 // game — `<seed> <score> <positions> <lines> <tetrises>`, as `turbostack-compare`'s `baseline.ts` does — and then the
 // mean score with its standard error.
+//
+// With `--metal` (and `--allow-net`), on a Metal server (`src/devices.wac`), a value network greedily or with one piece of
+// lookahead: every game at once (`playLockstep`), the same games as on the CPU but where the GPU's rounding breaks a
+// tie the other way.
 
 import { Sys } from "std";
 import { Device, Tensor, loadWeights } from "tensor";
+import { chooseDevice } from "../src/devices.wac";
 import { Board } from "../src/board.wac";
 import { lookahead } from "../src/lookahead.wac";
 import { Evaluator, GameResult, Pieces, play } from "../src/game.wac";
 import { LegacyScoreModel } from "../src/legacy.wac";
 
+import { playLockstep } from "../src/lockstep.wac";
 import { deepLook, finalScoresOf } from "../src/selfplay.wac";
 import { ValueConfig, ValueNet } from "../src/value.wac";
 import { parseInt, splitOn } from "../src/text.wac";
 
 export async i32 main(Sys sys) {
-  string[] args = sys.args();
-  Device d = Device.cpu();
+  auto chosen = await chooseDevice(sys);
+  if (chosen.isErr()) {
+    sys.log("evaluate: " + chosen.err()!);
+    return 1;
+  }
+  string[] args = chosen.ok()!.args;
+  Device d = chosen.ok()!.device;
   u8[] weights = (await sys.readFile(args[1])).orElse(u8[]());
   string[] lookArg = args.len() > 4 ? splitOn(args[4], 58 as u8) : ["0"];
   i32 look = parseInt(lookArg[0]);
   i32 look2 = lookArg.len() > 1 ? parseInt(lookArg[1]) : 0;
   // The two-piece player, for `dual` with `k:k2`.
+  if (chosen.ok()!.gpu) {
+    if (args[0] == "legacy" || look2 != 0) {
+      sys.log("evaluate: on Metal, only a value network, greedily or with one piece of lookahead, runs so far");
+      return 1;
+    }
+    ValueNet gnet = ValueNet.create(d, ValueConfig.named(args[0]));
+    auto gloaded = loadWeights(gnet.params, weights);
+    if (gloaded.isErr()) {
+      sys.log("cannot load the weights: " + gloaded.err()!);
+      return 1;
+    }
+    i32 gfrom = parseInt(args[2]);
+    i32 gto = parseInt(args[3]);
+    i32[] seeds = i32[].filled(gto - gfrom + 1, 0);
+    for (i32 i = 0; i < seeds.len(); i++) { seeds[i] = gfrom + i; }
+    GameResult[] rs = await playLockstep(d, gnet, seeds, 130, args[0] == "dual1" ? 1 : 0, look);
+    for (i32 i = 0; i < rs.len(); i++) { sys.log("\{seeds[i]} \{rs[i].score} \{rs[i].positions} \{rs[i].lines} \{rs[i].tetrises}"); }
+    report(sys, rs);
+    return 0;
+  }
   fn<f32[](Board[])> deep = (Board[] bs) => f32[]();
   // Each model as one thing: an estimate of the game's final score from a board. The old model is one already; the
   // new one adds its value — points still to come — to the score so far, and a finished game comes to its score.
@@ -75,18 +106,26 @@ export async i32 main(Sys sys) {
   });
   i32 from = parseInt(args[2]);
   i32 to = parseInt(args[3]);
-  f64 sum = 0.0;
-  f64 sq = 0.0;
-  i32 n = 0;
+  GameResult[] results = GameResult[].filled(to - from + 1, GameResult(0, 0, 0, 0, false));
   for (i32 seed = from; seed <= to; seed++) {
     GameResult r = play(Board.empty(130), Pieces.seeded(seed), e);
     sys.log("\{seed} \{r.score} \{r.positions} \{r.lines} \{r.tetrises}");
+    results[seed - from] = r;
+  }
+  report(sys, results);
+  return 0;
+}
+
+/** The mean score with its standard error. */
+void report(Sys sys, GameResult[] results) {
+  f64 sum = 0.0;
+  f64 sq = 0.0;
+  i32 n = results.len();
+  for (GameResult r in results) {
     sum += r.score as f64;
     sq += (r.score as f64) * (r.score as f64);
-    n++;
   }
   f64 mean = sum / (n as f64);
   f64 sd = ((sq / (n as f64) - mean * mean) * (n as f64) / ((n - 1) as f64)).sqrt();
   sys.log("mean \{mean} ± \{sd / (n as f64).sqrt()} (standard error), standard deviation \{sd}, \{n} games");
-  return 0;
 }

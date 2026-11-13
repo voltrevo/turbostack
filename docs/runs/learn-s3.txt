@@ -1,0 +1,81 @@
+config=dual iters=80 boards=32000 exactBoards=8000 games=256 window=64000 epochs=1 batch=256 lr=0.001 lrEnd=0.0001 eps=0.05 epsEnd=0.015 bonus=40 bonusUntil=0.25 lambda=0.9 lambdaEnd=0.5 exactFrom=0.35 exactFull=0.45 exactWindow=32000 exactEpochs=2 dualIters=0 dualBoards=3000 dualShare=0.333 dualLook=3 dualPlay=3 dualLr=0.0001 dualEpochs=2 dualWindow=18000 dualEps=0.015 dualLambda=0 checkEvery=4 checkGames=100 dualCheckGames=50 dualCheckLook=3 seed=1 start=0
+iteration 1: 32081 boards, lr 0.001, eps 0.05, λ 0.9, bonus 40, exact 0%; fit 32081: error 112, held out 97 (3.3 + 0.6 s, 4 s in all)
+iteration 2: 32217 boards, lr 0.000971274019847117, eps 0.04955696202531646, λ 0.8949367088607595, bonus 37, exact 0%; fit 64298: error 125, held out 118 (2.8 + 1.2 s, 8 s in all)
+iteration 3: 32021 boards, lr 0.0009433732216299778, eps 0.04911392405063291, λ 0.889873417721519, bonus 35, exact 0%; fit 64238: error 148, held out 145 (3.1 + 1.2 s, 12 s in all)
+iteration 4: 32018 boards, lr 0.0009162739011886736, eps 0.04867088607594937, λ 0.8848101265822785, bonus 33, exact 0%; fit 64039: error 162, held out 156 (3 + 1.2 s, 17 s in all); games 1001-1100: 382 ± 25
+iteration 5: 32110 boards, lr 0.000889953035288523, eps 0.048227848101265826, λ 0.879746835443038, bonus 31, exact 0%; fit 64128: error 173, held out 162 (3 + 1.2 s, 21 s in all)
+iteration 6: 32203 boards, lr 0.0008643882620598269, eps 0.04778481012658228, λ 0.8746835443037975, bonus 29, exact 0%; fit 64313: error 190, held out 196 (3 + 1.2 s, 25 s in all)
+iteration 7: 32052 boards, lr 0.0008395578619995112, eps 0.047341772151898734, λ 0.8696202531645569, bonus 27, exact 0%; fit 64255: error 185, held out 183 (2.9 + 1.2 s, 29 s in all)
+iteration 8: 32210 boards, lr 0.0008154407395185163, eps 0.04689873417721519, λ 0.8645569620253165, bonus 25, exact 0%; fit 64262: error 192, held out 188 (2.8 + 1.2 s, 33 s in all); games 1001-1100: 1661 ± 122
+iteration 9: 32006 boards, lr 0.0007920164050192551, eps 0.04645569620253165, λ 0.859493670886076, bonus 23, exact 0%; fit 64216: error 197, held out 188 (2.8 + 1.2 s, 37 s in all)
+iteration 10: 32052 boards, lr 0.0007692649574879141, eps 0.046012658227848106, λ 0.8544303797468354, bonus 21, exact 0%; fit 64058: error 199, held out 198 (2.9 + 1.3 s, 42 s in all)
+iteration 11: 32067 boards, lr 0.0007471670675868079, eps 0.04556962025316456, λ 0.8493670886075949, bonus 19, exact 0%; fit 64119: error 200, held out 192 (2.9 + 1.2 s, 46 s in all)
+iteration 12: 32096 boards, lr 0.0007257039612324214, eps 0.045126582278481014, λ 0.8443037974683545, bonus 17, exact 0%; fit 64163: error 203, held out 194 (2.8 + 1.2 s, 50 s in all); games 1001-1100: 2983 ± 187
+iteration 13: 32126 boards, lr 0.0007048574036451902, eps 0.04468354430379747, λ 0.839240506329114, bonus 15, exact 0%; fit 64222: error 208, held out 199 (2.8 + 1.2 s, 54 s in all)
+iteration 14: 32108 boards, lr 0.0006846096838574657, eps 0.04424050632911393, λ 0.8341772151898734, bonus 13, exact 0%; fit 64234: error 208, held out 198 (2.8 + 1.2 s, 58 s in all)
+iteration 15: 32117 boards, lr 0.0006649435996665047, eps 0.04379746835443038, λ 0.8291139240506329, bonus 11, exact 0%; fit 64225: error 210, held out 206 (2.6 + 1.2 s, 62 s in all)
+iteration 16: 32177 boards, lr 0.000645842443019698, eps 0.04335443037974684, λ 0.8240506329113924, bonus 9, exact 0%; fit 64294: error 216, held out 215 (2.6 + 1.2 s, 65 s in all); games 1001-1100: 5061 ± 315
+iteration 17: 32170 boards, lr 0.0006272899858196246, eps 0.042911392405063295, λ 0.8189873417721519, bonus 7, exact 0%; fit 64347: error 219, held out 208 (2.7 + 1.2 s, 69 s in all)
+iteration 18: 32187 boards, lr 0.0006092704661368678, eps 0.042468354430379746, λ 0.8139240506329114, bonus 5, exact 0%; fit 64357: error 232, held out 222 (2.7 + 1.2 s, 73 s in all)
+iteration 19: 32202 boards, lr 0.0005917685748188824, eps 0.0420253164556962, λ 0.8088607594936709, bonus 3, exact 0%; fit 64389: error 232, held out 211 (2.6 + 1.2 s, 77 s in all)
+iteration 20: 32197 boards, lr 0.0005747694424835352, eps 0.04158227848101266, λ 0.8037974683544304, bonus 1, exact 0%; fit 64399: error 250, held out 238 (2.6 + 1.2 s, 81 s in all); games 1001-1100: 12196 ± 584
+iteration 21: 32203 boards, lr 0.0005582586268862695, eps 0.04113924050632911, λ 0.7987341772151899, bonus 0, exact 0%; fit 64400: error 261, held out 268 (2.6 + 1.2 s, 84 s in all)
+iteration 22: 32205 boards, lr 0.0005422221006501588, eps 0.040696202531645576, λ 0.7936708860759494, bonus 0, exact 0%; fit 64408: error 273, held out 254 (2.5 + 1.2 s, 88 s in all)
+iteration 23: 32231 boards, lr 0.0005266462393484277, eps 0.040253164556962026, λ 0.7886075949367088, bonus 0, exact 0%; fit 64436: error 280, held out 268 (2.6 + 1.2 s, 92 s in all)
+iteration 24: 32206 boards, lr 0.0005115178099293143, eps 0.039810126582278484, λ 0.7835443037974683, bonus 0, exact 0%; fit 64437: error 283, held out 266 (2.6 + 1.2 s, 96 s in all); games 1001-1100: 14150 ± 638
+iteration 25: 32235 boards, lr 0.0004968239594734386, eps 0.03936708860759494, λ 0.7784810126582279, bonus 0, exact 0%; fit 64441: error 281, held out 280 (2.7 + 1.2 s, 100 s in all)
+iteration 26: 32238 boards, lr 0.00048255220427412775, eps 0.03892405063291139, λ 0.7734177215189874, bonus 0, exact 0%; fit 64473: error 288, held out 296 (2.6 + 1.2 s, 103 s in all)
+iteration 27: 32238 boards, lr 0.00046869041923141923, eps 0.03848101265822785, λ 0.7683544303797468, bonus 0, exact 0%; fit 64476: error 289, held out 278 (2.6 + 1.2 s, 107 s in all)
+iteration 28: 32246 boards, lr 0.00045522682755073105, eps 0.03803797468354431, λ 0.7632911392405064, bonus 0, exact 0%; fit 64484: error 300, held out 279 (2.5 + 1.2 s, 111 s in all); games 1001-1100: 16789 ± 570
+iteration 29: 30968 boards, lr 0.0004421499907374488, eps 0.03759493670886076, λ 0.7582278481012659, bonus 0, exact 4%; fit 63214: error 306, held out 299 (3.1 + 1.2 s, 115 s in all)
+iteration 30: 27953 boards, lr 0.0004294487988789274, eps 0.037151898734177215, λ 0.7531645569620253, bonus 0, exact 17%; fit 58921: error 300, held out 296 (4.2 + 1.1 s, 120 s in all)
+iteration 31: 24889 boards, lr 0.0004171124612056518, eps 0.03670886075949367, λ 0.7481012658227848, bonus 0, exact 30%; fit 83810: error 297, held out 300 (4.3 + 1.5 s, 126 s in all)
+iteration 32: 21845 boards, lr 0.0004051304969235381, eps 0.03626582278481013, λ 0.7430379746835443, bonus 0, exact 42%; fit 74687: error 294, held out 285 (4.7 + 1.4 s, 132 s in all); games 1001-1100: 17396 ± 556
+iteration 33: 18809 boards, lr 0.00039349272630958486, eps 0.03582278481012659, λ 0.7379746835443038, bonus 0, exact 55%; fit 65543: error 276, held out 283 (4.7 + 2.4 s, 140 s in all)
+iteration 34: 15984 boards, lr 0.00038218926206331187, eps 0.03537974683544304, λ 0.7329113924050633, bonus 0, exact 68%; fit 56638: error 266, held out 273 (4.7 + 2.1 s, 146 s in all)
+iteration 35: 12961 boards, lr 0.0003712105009066362, eps 0.034936708860759495, λ 0.7278481012658228, bonus 0, exact 80%; fit 47754: error 257, held out 253 (4.3 + 1.8 s, 152 s in all)
+iteration 36: 9914 boards, lr 0.00036054711542505034, eps 0.03449367088607595, λ 0.7227848101265824, bonus 0, exact 93%; fit 38859: error 244, held out 240 (3.9 + 1.4 s, 158 s in all); games 1001-1100: 17128 ± 706
+iteration 37: 8132 boards, lr 0.0003501900461431711, eps 0.0340506329113924, λ 0.7177215189873418, bonus 0, exact 100%; fit 46991: error 241, held out 242 (3.3 + 1.7 s, 163 s in all)
+iteration 38: 8132 boards, lr 0.0003401304938279252, eps 0.03360759493670886, λ 0.7126582278481013, bonus 0, exact 100%; fit 39139: error 226, held out 231 (3.4 + 1.4 s, 168 s in all)
+iteration 39: 8137 boards, lr 0.00033035991201283386, eps 0.03316455696202532, λ 0.7075949367088608, bonus 0, exact 100%; fit 34315: error 226, held out 222 (3.4 + 1.3 s, 172 s in all)
+iteration 40: 8133 boards, lr 0.000320869999737045, eps 0.03272151898734177, λ 0.7025316455696202, bonus 0, exact 100%; fit 32534: error 222, held out 227 (3.4 + 1.2 s, 177 s in all); games 1001-1100: 17654 ± 635
+iteration 41: 8126 boards, lr 0.000311652694492943, eps 0.032278481012658226, λ 0.6974683544303797, bonus 0, exact 100%; fit 32528: error 224, held out 216 (3.4 + 1.2 s, 182 s in all)
+iteration 42: 8128 boards, lr 0.0003027001653763463, eps 0.031835443037974684, λ 0.6924050632911393, bonus 0, exact 100%; fit 32524: error 216, held out 219 (3.4 + 1.2 s, 186 s in all)
+iteration 43: 8136 boards, lr 0.00029400480643347094, eps 0.03139240506329114, λ 0.6873417721518987, bonus 0, exact 100%; fit 32523: error 217, held out 220 (3.4 + 1.2 s, 191 s in all)
+iteration 44: 8123 boards, lr 0.00028555923019901074, eps 0.030949367088607595, λ 0.6822784810126582, bonus 0, exact 100%; fit 32513: error 215, held out 210 (3.4 + 1.2 s, 195 s in all); games 1001-1100: 19377 ± 588
+iteration 45: 8136 boards, lr 0.00027735626141984143, eps 0.030506329113924053, λ 0.6772151898734178, bonus 0, exact 100%; fit 32523: error 212, held out 207 (3.4 + 1.2 s, 200 s in all)
+iteration 46: 8144 boards, lr 0.0002693889309590172, eps 0.030063291139240507, λ 0.6721518987341772, bonus 0, exact 100%; fit 32539: error 211, held out 212 (3.5 + 1.3 s, 205 s in all)
+iteration 47: 8141 boards, lr 0.0002616504698748821, eps 0.029620253164556964, λ 0.6670886075949367, bonus 0, exact 100%; fit 32544: error 206, held out 211 (3.5 + 1.2 s, 210 s in all)
+iteration 48: 8145 boards, lr 0.00025413430367026373, eps 0.029177215189873422, λ 0.6620253164556962, bonus 0, exact 100%; fit 32566: error 207, held out 210 (3.5 + 1.2 s, 214 s in all); games 1001-1100: 18549 ± 680
+iteration 49: 8145 boards, lr 0.0002468340467068649, eps 0.028734177215189873, λ 0.6569620253164556, bonus 0, exact 100%; fit 32575: error 201, held out 207 (3.5 + 1.2 s, 219 s in all)
+iteration 50: 8146 boards, lr 0.00023974349678010774, eps 0.02829113924050633, λ 0.6518987341772152, bonus 0, exact 100%; fit 32577: error 204, held out 198 (3.5 + 1.2 s, 224 s in all)
+iteration 51: 8130 boards, lr 0.00023285662984981952, eps 0.027848101265822784, λ 0.6468354430379747, bonus 0, exact 100%; fit 32566: error 206, held out 217 (3.5 + 1.2 s, 228 s in all)
+iteration 52: 8133 boards, lr 0.00022616759492228642, eps 0.02740506329113924, λ 0.6417721518987343, bonus 0, exact 100%; fit 32554: error 209, held out 211 (3.5 + 1.2 s, 233 s in all); games 1001-1100: 19248 ± 682
+iteration 53: 8141 boards, lr 0.00021967070907932354, eps 0.0269620253164557, λ 0.6367088607594937, bonus 0, exact 100%; fit 32550: error 208, held out 222 (3.5 + 1.2 s, 238 s in all)
+iteration 54: 8137 boards, lr 0.0002133604526501411, eps 0.026518987341772153, λ 0.6316455696202532, bonus 0, exact 100%; fit 32541: error 205, held out 213 (3.5 + 1.2 s, 242 s in all)
+iteration 55: 8142 boards, lr 0.000207231464521903, eps 0.02607594936708861, λ 0.6265822784810127, bonus 0, exact 100%; fit 32553: error 203, held out 210 (3.5 + 1.2 s, 247 s in all)
+iteration 56: 8143 boards, lr 0.0002012785375849939, eps 0.02563291139240506, λ 0.6215189873417721, bonus 0, exact 100%; fit 32563: error 207, held out 209 (3.5 + 1.2 s, 252 s in all); games 1001-1100: 20094 ± 551
+iteration 57: 8149 boards, lr 0.00019549661430912608, eps 0.02518987341772152, λ 0.6164556962025316, bonus 0, exact 100%; fit 32571: error 200, held out 194 (3.5 + 1.2 s, 256 s in all)
+iteration 58: 8129 boards, lr 0.0001898807824465263, eps 0.024746835443037976, λ 0.6113924050632912, bonus 0, exact 100%; fit 32563: error 200, held out 201 (3.5 + 1.2 s, 261 s in all)
+iteration 59: 8140 boards, lr 0.00018442627085855343, eps 0.02430379746835443, λ 0.6063291139240506, bonus 0, exact 100%; fit 32561: error 192, held out 193 (3.5 + 1.2 s, 266 s in all)
+iteration 60: 8140 boards, lr 0.0001791284454622004, eps 0.023860759493670888, λ 0.6012658227848102, bonus 0, exact 100%; fit 32558: error 190, held out 190 (3.5 + 1.2 s, 271 s in all); games 1001-1100: 19740 ± 606
+iteration 61: 8142 boards, lr 0.00017398280529303643, eps 0.02341772151898734, λ 0.5962025316455696, bonus 0, exact 100%; fit 32551: error 196, held out 191 (3.5 + 1.2 s, 275 s in all)
+iteration 62: 8139 boards, lr 0.00016898497868124573, eps 0.022974683544303796, λ 0.5911392405063292, bonus 0, exact 100%; fit 32561: error 197, held out 186 (3.5 + 1.2 s, 280 s in all)
+iteration 63: 8148 boards, lr 0.00016413071953751292, eps 0.022531645569620253, λ 0.5860759493670886, bonus 0, exact 100%; fit 32569: error 196, held out 195 (3.5 + 1.2 s, 285 s in all)
+iteration 64: 8135 boards, lr 0.00015941590374559989, eps 0.022088607594936707, λ 0.5810126582278481, bonus 0, exact 100%; fit 32564: error 199, held out 199 (3.6 + 1.2 s, 289 s in all); games 1001-1100: 20510 ± 590
+iteration 65: 8140 boards, lr 0.00015483652565854988, eps 0.021645569620253165, λ 0.5759493670886076, bonus 0, exact 100%; fit 32562: error 195, held out 203 (3.5 + 1.2 s, 294 s in all)
+iteration 66: 8154 boards, lr 0.00015038869469554097, eps 0.02120253164556962, λ 0.570886075949367, bonus 0, exact 100%; fit 32577: error 189, held out 196 (3.6 + 1.2 s, 299 s in all)
+iteration 67: 8141 boards, lr 0.0001460686320364989, eps 0.020759493670886076, λ 0.5658227848101266, bonus 0, exact 100%; fit 32570: error 192, held out 194 (3.5 + 1.2 s, 303 s in all)
+iteration 68: 8144 boards, lr 0.00014187266741165966, eps 0.020316455696202534, λ 0.5607594936708861, bonus 0, exact 100%; fit 32579: error 188, held out 189 (3.6 + 1.2 s, 308 s in all); games 1001-1100: 21019 ± 650
+iteration 69: 8141 boards, lr 0.00013779723598335574, eps 0.019873417721518984, λ 0.5556962025316455, bonus 0, exact 100%; fit 32580: error 188, held out 193 (3.5 + 1.2 s, 313 s in all)
+iteration 70: 8149 boards, lr 0.0001338388753173757, eps 0.019430379746835442, λ 0.5506329113924051, bonus 0, exact 100%; fit 32575: error 181, held out 192 (3.6 + 1.2 s, 318 s in all)
+iteration 71: 8155 boards, lr 0.0001299942224413246, eps 0.0189873417721519, λ 0.5455696202531646, bonus 0, exact 100%; fit 32589: error 183, held out 190 (3.5 + 1.2 s, 322 s in all)
+iteration 72: 8153 boards, lr 0.00012626001098748563, eps 0.018544303797468353, λ 0.540506329113924, bonus 0, exact 100%; fit 32598: error 181, held out 178 (3.6 + 1.2 s, 327 s in all); games 1001-1100: 20705 ± 608
+iteration 73: 8135 boards, lr 0.00012263306841775633, eps 0.01810126582278481, λ 0.5354430379746835, bonus 0, exact 100%; fit 32592: error 181, held out 178 (3.6 + 1.2 s, 332 s in all)
+iteration 74: 8152 boards, lr 0.00011911031332830069, eps 0.01765822784810126, λ 0.530379746835443, bonus 0, exact 100%; fit 32595: error 182, held out 180 (3.6 + 1.2 s, 337 s in all)
+iteration 75: 8138 boards, lr 0.00011568875283162825, eps 0.01721518987341772, λ 0.5253164556962026, bonus 0, exact 100%; fit 32578: error 182, held out 192 (3.6 + 1.2 s, 341 s in all)
+iteration 76: 8161 boards, lr 0.00011236548001387511, eps 0.016772151898734176, λ 0.520253164556962, bonus 0, exact 100%; fit 32586: error 187, held out 190 (3.6 + 1.2 s, 346 s in all); games 1001-1100: 22856 ± 497
+iteration 77: 8145 boards, lr 0.00010913767146512734, eps 0.016329113924050634, λ 0.5151898734177215, bonus 0, exact 100%; fit 32596: error 179, held out 178 (3.5 + 1.2 s, 351 s in all)
+iteration 78: 8144 boards, lr 0.00010600258488068823, eps 0.01588607594936709, λ 0.5101265822784811, bonus 0, exact 100%; fit 32588: error 172, held out 176 (3.6 + 1.2 s, 356 s in all)
+iteration 79: 8147 boards, lr 0.00010295755673125127, eps 0.015443037974683542, λ 0.5050632911392405, bonus 0, exact 100%; fit 32597: error 170, held out 186 (3.6 + 1.2 s, 361 s in all)
+iteration 80: 8144 boards, lr 0.0001, eps 0.015, λ 0.5, bonus 0, exact 100%; fit 32580: error 169, held out 177 (3.6 + 1.2 s, 365 s in all); games 1001-1100: 22398 ± 610

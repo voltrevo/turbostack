@@ -1,0 +1,212 @@
+// The about page: a static document, written ahead of time, that runs nothing in the browser.
+//
+//     wac run --allow-write web/about.wac dist/site/about.html
+//
+// `tools/site.sh` writes it beside the coach, which links to it as `about.html`.
+
+import { Sys } from "std";
+import { Head, Node, documentOf, html.a, html.article, html.em, html.footer, html.h1, html.h2, html.header,
+         html.div, html.li, html.nav, html.p, html.section, html.strong, html.style, html.table, html.tbody, html.td,
+         html.th, html.thead, html.tr, html.ul } from "web";
+
+static string STYLE = """
+  :root { color-scheme: dark; --bg: #121316; --card: #1b1d22; --rule: #2c2f36; --text: #eceae4; --muted: #9a988f; --accent: #5aa2f0; }
+  @media (prefers-color-scheme: light) {
+    :root { color-scheme: light; --bg: #f6f5f1; --card: #ffffff; --rule: #e2e0d9; --text: #1b1b1a; --muted: #6b6a65; --accent: #2a78d6; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .page { max-width: 44rem; margin: 0 auto; padding: 20px 18px 56px; }
+  nav { display: flex; justify-content: space-between; font-size: .9rem; margin-bottom: 28px; }
+  nav a, a { color: var(--accent); }
+  nav a { text-decoration: none; font-weight: 600; }
+  header p { color: var(--muted); font-size: 1.05rem; margin-top: 0; }
+  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 10px; letter-spacing: -0.01em; }
+  h2 { font-size: 1.15rem; margin: 40px 0 8px; }
+  section { border-top: 1px solid var(--rule); }
+  ul { padding-left: 1.2rem; }
+  li { margin: 4px 0; }
+  code { font: .88em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--card); padding: 1px 5px; border-radius: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: .93rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+  td:last-child, th:last-child { text-align: right; }
+  th { color: var(--muted); font-weight: 600; }
+  .play { display: inline-block; margin-top: 8px; padding: 10px 18px; border-radius: 10px; background: var(--accent);
+          color: #fff; font-weight: 700; text-decoration: none; }
+  footer { margin-top: 48px; color: var(--muted); font-size: .9rem; }
+""";
+
+Node page() {
+  return <div class="page">
+    <style>{Node.Text(STYLE)}</style>
+    <nav><a href="coach.html">← Play</a><a href="https://github.com/voltrevo/wac">wac on GitHub</a></nav>
+    <article>
+      <header>
+        <h1>A Tetris coach that taught itself first</h1>
+        <p>Every move you make is judged by a neural network that learned the game from nothing but self-play. It shows
+          where your move ranks, what it expects it to cost, and what it would have done instead. Everything that does
+          this, from the training loop on a GPU to the page in your browser, is written in one language.</p>
+        <a class="play" href="coach.html">Play a game</a>
+      </header>
+
+      <section>
+        <h2>Written in wac, top to bottom</h2>
+        <p><a href="https://github.com/voltrevo/wac">wac</a> is a C-family language for WebAssembly GC, made by Andrew
+          Morris with coding agents from April 2026, well before this project. It bootstraps from hand-written
+          WebAssembly text, with no binary seed. It has its own standard library, package manager, shell and test
+          runner. This project uses it for everything:</p>
+        <ul>
+          <li><strong>The game</strong>: the board, the pieces and the seeded piece order.</li>
+          <li><strong>The network and its training</strong>: built on wac-tensor, one tensor library with CPU, WebGPU and
+            Metal backends. The same network code trains on a Mac's GPU and runs in your browser.</li>
+          <li><strong>The coach page</strong>: built on wac-web. The judge, the controls, and the sounds and music,
+            synthesized sample by sample.</li>
+          <li><strong>The research tools</strong>: the player model below was fitted entirely in wac, down to reading
+            gzipped JSON exports with wac's own gzip and json packages.</li>
+        </ul>
+        <p>One piece is not wac: a 340-line Swift program that talks to the Mac's GPU. Even there, the kernels it runs
+          are Metal Shading Language that wac generates and sends to it.</p>
+        <p>wac is young, and it shows. Code the type checker accepts can occasionally fail to compile; this project hit
+          that twice. On the GPU, the elementwise kernels for activations take more time than the matrix products.
+          Rough edges found along the way went into a friction log for the language.</p>
+      </section>
+
+      <section>
+        <h2>Training on a Mac's GPU</h2>
+        <p>The training first ran on CPUs. To go faster, wac-tensor gained a Metal backend. Its GPU code was already
+          shaders sent over a wire, the browser's WebGPU being one end. The new end is a socket to a small server on a
+          Mac: wac writes each kernel as Metal Shading Language text, and the server compiles it, holds the buffers, runs
+          the kernels and does matrix products with Metal Performance Shaders. The browser path and the Mac path share
+          one backend.</p>
+        <p>Making it fast took three fixes:</p>
+        <ul>
+          <li>The buffer pool matched exact lengths, so batches of varying size kept allocating fresh memory. One run made
+            4,590 buffers (21 GB). With size classes it makes 247 (718 MB).</li>
+          <li>Metal Performance Shaders compiled a new pipeline for every new row count. Fixed with power-of-two row
+            blocks.</li>
+          <li>Boards travel as 21 numbers, one per row, instead of 252.</li>
+        </ul>
+        <p>Together these took self-play from 0.87 to 0.12 ms a board. Measured on one cloud Mac (6 cores), CPU against
+          GPU:</p>
+        <table>
+          <thead><tr><th>Same Mac</th><th>CPU</th><th>Metal</th></tr></thead>
+          <tbody>
+            <tr><td>Self-play, per board</td><td>2.9 ms</td><td>0.12 ms</td></tr>
+            <tr><td>Fitting 48,000 boards, one epoch</td><td>19.2 s</td><td>2.2 s</td></tr>
+            <tr><td>A training iteration</td><td>about 47 s</td><td>4.1 s</td></tr>
+          </tbody>
+        </table>
+        <p>An earlier recipe, rerun on the GPU for 88 iterations, reproduced its CPU result: the same plateau, in about
+          six minutes of training instead of over an hour. A new schedule then put self-play, fitting and evaluation in
+          one process that keeps the network on the GPU. From random weights, one run reached 28,150 ± 313 points with
+          lookahead after 27 minutes, within noise of the best network trained so far (28,590).</p>
+        <p>The Mac was a cloud machine that a coding agent started next to its Linux sandbox: the agent edited code on
+          Linux and ran it on the Mac's GPU.</p>
+      </section>
+
+      <section>
+        <h2>The game</h2>
+        <p>The rules are NES-style stacking as <a href="https://github.com/voltrevo/turbostack">turbostack</a> plays it:
+          a 20×10 board, the seven pieces, 40/100/300/1,200 points for one to four lines, 130 lines a game, and a stack
+          above 15 rows ends it. The board here is a line-for-line port, checked against the original on 495,466
+          placement choices from 3,000 positions. Every one matched, in the same order. You place each piece directly
+          rather than steering it down, which leaves the real question: where should it go?</p>
+      </section>
+
+      <section>
+        <h2>The model</h2>
+        <p>A value network of about 51,000 parameters reads the board and the number of lines left, and nothing else:
+          no holes, bumpiness or other hand-made features. A convolution feeds two summaries, one per row and one per
+          column, then two dense layers with a skip connection. It outputs two numbers: the points still to come if
+          play is greedy from here, and the same if play looks one piece ahead.</p>
+        <p>It was trained only on games it played against itself. What made it take off: TD(λ) targets, starting boards
+          with rubble and wells so clears are a move away, a survival bonus that fades to nothing, and fine-tuning on
+          exact expectations over the next piece. It learned to clear lines, then to survive, and once only points
+          counted, to build for tetrises.</p>
+        <table>
+          <thead><tr><th>Same seeded games, mean final score</th><th>Score</th></tr></thead>
+          <tbody>
+            <tr><td>turbostack's published model, greedy (games 1–1,000)</td><td>22,055 ± 192</td></tr>
+            <tr><td>Self-taught, greedy (games 1–1,000)</td><td>23,667 ± 168</td></tr>
+            <tr><td>turbostack's model, one piece of lookahead (games 1–200)</td><td>27,331 ± 225</td></tr>
+            <tr><td>Self-taught, one piece of lookahead (games 1–200)</td><td>28,590 ± 265</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>The judge in your browser</h2>
+        <p>The coach runs the network on your device's CPU, in WebAssembly, with the weights inside the page. After each
+          move it looks one piece ahead from its own top three choices and from yours: for each, the average over the
+          seven possible next pieces of the best result that piece allows. Your move's cost is the gap to the best of
+          those, in expected points. Luck cancels out because both are valued from the same position.</p>
+        <p>Judging takes about a fifth of a second. The next piece is drawn first, so you never wait for a verdict. The
+          whole coach also works as a single HTML file opened from disk, offline.</p>
+      </section>
+
+      <section>
+        <h2>Learning how you play</h2>
+        <p>Knowing the best move is the easy half of coaching. The useful half is knowing which good moves <em>you</em> won't
+          find. So every move is kept with the value of every placement that was available, and a small model of the
+          player is fitted to them. It is a softmax over placements, using the network's values and 14 features,
+          including holes made, landing height, wells, tucks and spins, the size of each clear, blocking the well, and
+          how far each option is from the best.</p>
+        <p>It was measured on one player's history: 10,448 moves from 2024 in turbostack's original frontend, with the
+          last 8 games (2,700 moves) held out.</p>
+        <ul>
+          <li>Predictions start meaning something after about 500 moves, roughly a game and a half, and level off
+            around 2,000. Players simulated with known habits were recovered the same way: common habits show by about
+            500 moves, rare ones such as avoiding tucks take about 2,000.</li>
+          <li>The 10% of positions it flags as riskiest held 31–36% of the player's biggest 5% of losses, against 10%
+            by chance.</li>
+          <li>A single "how closely you follow the engine" setting doesn't sharpen with more moves. The features do the
+            work.</li>
+          <li>The value network itself, fine-tuned on the same moves, predicts somewhat better (−0.77 against −0.87
+            log-likelihood a move), but only with plenty of data and a generous evaluation, and it explains nothing. The
+            readable model is the one a coach can talk about.</li>
+          <li>Valuing moves with lookahead instead of greedily barely helped, at hundreds of times the cost.</li>
+          <li>A fit takes 16 ms at 500 moves and 131 ms at 2,000, with Newton's method in WebAssembly on V8. Updating it
+            after one more move takes 7 to 32 ms. That is cheap enough to run on your own device as you play.</li>
+        </ul>
+        <p>That points at the next step: positions where the model knows a better move and your profile says you're
+          unlikely to see it, served as practice.</p>
+      </section>
+
+      <section>
+        <h2>Your moves</h2>
+        <p>Each game's moves are kept in this browser's storage, and nothing is sent anywhere. Download my data saves
+          every move this browser has kept as a file, and Delete my data removes them all from this browser.</p>
+      </section>
+
+      <section>
+        <h2>How it was built</h2>
+        <p>With coding agents, in parallel. The model research came first, with an earlier agent setup. From then on the
+          work ran as separate agent threads, each committing small changes to one shared branch:</p>
+        <ul>
+          <li>One added the Metal backend and moved training onto a cloud Mac.</li>
+          <li>One built this coach.</li>
+          <li>One ran the player-model experiments. Valuing every placement of 10,448 moves with lookahead took about 30
+            minutes on four cores in a cloud sandbox.</li>
+        </ul>
+        <p>The threads told each other what they changed. The rewrite went from first commit to this coach in five
+          days.</p>
+      </section>
+    </article>
+    <footer>
+      <p>turbostack coach · <a href="coach.html">Play</a> · <a href="https://github.com/voltrevo/turbostack">turbostack</a></p>
+    </footer>
+  </div>;
+}
+
+export async i32 main(Sys sys) {
+  string[] args = sys.args();
+  if (args.len() != 1) {
+    sys.stderr().write("usage: about.wac <out.html>\n".toBytes());
+    return 1;
+  }
+  Head head = Head("About · turbostack coach",
+                   "A Tetris coach whose judge taught itself by self-play, running in your browser.",
+                   "default-src 'none'; style-src 'unsafe-inline'", string[](), string[](), "");
+  auto wrote = await sys.files().writeFile(args[0], documentOf(head, page()).toBytes());
+  return wrote.isOk() ? 0 : 1;
+}

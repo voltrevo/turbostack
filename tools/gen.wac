@@ -1,6 +1,6 @@
 // One worker's share of an iteration: boards from the network's own games, each with its exact target.
 //
-//     wac run --allow-read --allow-write tools/gen.wac <config> <model.weights|none> <seed> <boards> <epsilon‰> <out.bin> [λ‰ [bonus [lookahead]]]
+//     wac run --allow-read --allow-write tools/gen.wac [--metal] <config> <model.weights|none> <seed> <boards> <epsilon‰> <out.bin> [λ‰ [bonus [lookahead]]]
 //
 // With λ, targets are λ-returns (`examplesFromPlay`); with λ negative, TD(λ) for -λ (`examplesTD`); without, the
 // exact one-step targets alone.
@@ -13,18 +13,33 @@
 // that many moves (`playoutTarget`).
 //
 // `none` is an untrained network — the start of learning from nothing.
+//
+// With `--metal` (and `--allow-net`), on a Metal server (`src/devices.wac`): TD(λ) or λ-returns, without lookahead, with
+// `GAMES` games played at once so that each batch the GPU values is large enough to be worth sending (`generate` in
+// `src/lockstep.wac`). `tools/learn.wac` does the rest on Metal in one process.
 
 import { Sys } from "std";
 import { Device, loadWeights } from "tensor";
+import { Chosen, chooseDevice } from "../src/devices.wac";
 import { Board } from "../src/board.wac";
 import { Pieces } from "../src/game.wac";
+import { Actors, Play, generate } from "../src/lockstep.wac";
 import { Examples, Exploration, boardsFromPlay, examplesDual, examplesFromPlay, examplesTD, targets } from "../src/selfplay.wac";
 import { parseInt } from "../src/text.wac";
 import { ValueConfig, ValueNet } from "../src/value.wac";
 
+/** How many games a worker on the GPU plays at once: about 1,600 boards a batch. */
+static i32 GAMES = 64;
+
 export async i32 main(Sys sys) {
-  string[] a = sys.args();
-  Device d = Device.cpu();
+  auto chosen = await chooseDevice(sys);
+  if (chosen.isErr()) {
+    sys.log("gen: " + chosen.err()!);
+    return 1;
+  }
+  string[] a = chosen.ok()!.args;
+  Device d = chosen.ok()!.device;
+  bool gpu = chosen.ok()!.gpu;
   i32 seed = parseInt(a[2]);
   d.seed(seed as i64);
   ValueNet net = ValueNet.create(d, ValueConfig.named(a[0]));
@@ -33,6 +48,19 @@ export async i32 main(Sys sys) {
     if (r.isErr()) { sys.log("gen: " + r.err()!); return 1; }
   }
   Pieces rng = Pieces.seeded(seed * 7919 + 17);
+  if (gpu) {
+    if (!(a.len() > 6 && net.config.heads == 1 && !(a.len() > 8 && parseInt(a[8]) > 0))) {
+      sys.log("gen: on Metal, only TD(λ) and λ-returns without lookahead run here (tools/learn.wac does the rest)");
+      return 1;
+    }
+    i32 l = parseInt(a[6]);
+    Play x = Play((parseInt(a[4]) as f64) / 1000.0, ((l < 0 ? -l : l) as f64) / 1000.0, a.len() > 7 ? parseInt(a[7]) as f64 : 0.0,
+                  l < 0 ? 0.0 : 1.0, 0, 0.0, 0);
+    Examples gx = await generate(d, net, rng, parseInt(a[3]), GAMES, x, Actors.create());
+    auto gw = await sys.writeFile(a[5], gx.encode());
+    if (gw.isErr()) { sys.log("gen: " + gw.err()!); return 1; }
+    return 0;
+  }
   if (net.config.heads > 1) {
     Examples dx = examplesDual(d, net, rng, parseInt(a[3]), Exploration((parseInt(a[4]) as f64) / 1000.0, a.len() > 8 ? parseInt(a[8]) : 3),
                                (parseInt(a[6]) as f64) / 1000.0, 2, a.len() > 9 ? parseInt(a[9]) : 0,
@@ -43,8 +71,10 @@ export async i32 main(Sys sys) {
   }
   // λ given as negative thousandths: TD(λ), bootstrapping from the network rather than the exact expectation.
   if (a.len() > 6 && parseInt(a[6]) < 0) {
-    Examples tx = examplesTD(d, net, rng, parseInt(a[3]), Exploration((parseInt(a[4]) as f64) / 1000.0, a.len() > 8 ? parseInt(a[8]) : 0),
-                             (-(parseInt(a[6])) as f64) / 1000.0, a.len() > 7 ? parseInt(a[7]) as f64 : 0.0);
+    Exploration tdx = Exploration((parseInt(a[4]) as f64) / 1000.0, a.len() > 8 ? parseInt(a[8]) : 0);
+    f64 lambda = (-(parseInt(a[6])) as f64) / 1000.0;
+    f64 bonus = a.len() > 7 ? parseInt(a[7]) as f64 : 0.0;
+    Examples tx = examplesTD(d, net, rng, parseInt(a[3]), tdx, lambda, bonus);
     auto tw = await sys.writeFile(a[5], tx.encode());
     if (tw.isErr()) { sys.log("gen: " + tw.err()!); return 1; }
     return 0;

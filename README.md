@@ -6,6 +6,10 @@ model that learned to play it from nothing.
 **Watch it play:** the pages site puts the self-taught model and turbostack's original side by side on the same pieces
 (`web/play.wac`, `sh tools/site.sh`).
 
+**Play it yourself:** the coach (`web/coach.wac`, `coach.html` on the same site) judges every move you make with the
+self-taught model looking one piece ahead — where it ranks, the points it expects it to cost, and the move it would have
+made — and keeps your moves in the browser for exporting.
+
 ## The game
 
 `src/board.wac` is turbostack's game exactly: a 20×10 board, the seven pieces, placements by drop, one rotation or one
@@ -38,5 +42,7 @@ model when both look ahead: **28,590 ± 265** over games 1–200, 1,259 ± 294 a
     wac run --allow-read tools/evaluate.wac standard models/self-taught.weights 1 1000
     wac run --allow-read tools/evaluate.wac legacy models/turbostack.weights 1 1000
     sh tools/train.sh <run> standard <iterations> ...              learn (see the script for its arguments)
+    METAL=1 sh tools/train.sh <run> standard <iterations> ...      the same on a Mac's GPU, about 10× faster (docs/metal.md)
+    wac run ... tools/learn.wac --metal <run> [key=value ...]      from nothing to close to v10 (−440 ± 383, one run) in 27 minutes (docs/fast-training.md)
     wac run --allow-read tools/show.wac standard models/self-taught.weights <seed>
     sh tools/site.sh                                               the pages site in dist/site

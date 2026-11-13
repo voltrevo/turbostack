@@ -1,0 +1,213 @@
+// A ceiling for the player model: the value network itself, fine-tuned to predict one person's choices.
+//
+//     wac run --allow-read --allow-write tools/humannet.wac <positions.txt> <N> <out.txt> [epochs [rate‱]]
+//
+// Each position's placements get logits s·(points + V(board left))/100, V the network started from
+// `models/self-taught.weights` and s a learned scale started from the β the player model finds for the same moves;
+// the softmax over them is trained by cross-entropy on the first N moves, every weight free. It may memorise the
+// player, which is the point: it says how much better than the player model anything could predict these choices, and
+// is nothing that would ship.
+//
+// Adam's learning rate is 0.0001 unless given, in ten-thousandths.
+//
+// After epochs 1, 2, 4, … up to `epochs` (default 32, fewer for big N so the work stays bounded) it predicts the
+// held-out games (the last 8, as `tools/humanfit.wac`) and writes the probabilities of the epoch with the best
+// held-out log-likelihood — picked on the held-out games, so optimistic — one line a held-out position:
+//
+//     <position> <probability of each placement>...
+//
+// Placements the old frontend's mouse could not pick are left out, as in the player model.
+
+import { Sys } from "std";
+import { Buf, Vec, math } from "core";
+import { Adam, Device, Tensor, Variable, loadWeights } from "tensor";
+import { Board, Placement } from "../src/board.wac";
+import { FEATURES, PlayerModel, Position, Prior, fitPlayer, mouseReachable } from "../src/human.wac";
+import { finalScoresOf } from "../src/selfplay.wac";
+import { parseInt } from "../src/text.wac";
+import { splitOn } from "../src/text.wac";
+import { ValueConfig, ValueNet } from "../src/value.wac";
+
+static i32 TEST_GAMES = 8;
+/** Placements a position can have at most, which every position is padded to. */
+static i32 K = 48;
+
+struct Example {
+  i32 game;
+  Board from;
+  Board[] after;
+  bool[] reachable;
+  i32 chosen;
+}
+
+/** A batch's boards, padded, and the tensors that go with them: points/100, live, mask, the choice. */
+struct Batch {
+  Board[] boards;
+  f32[] points;
+  f32[] live;
+  f32[] mask;
+  f32[] choice;
+}
+
+Batch batchOf(Example[] ex, i32[] which) {
+  i32 b = which.len();
+  Board[] boards = Board[].filled(b * K, ex[which[0]].from);
+  f32[] points = f32[].filled(b * K, 0.0);
+  f32[] live = f32[].filled(b * K, 0.0);
+  f32[] mask = f32[].filled(b * K, -10000.0);
+  f32[] choice = f32[].filled(b * K, 0.0);
+  for (i32 i = 0; i < b; i++) {
+    Example e = ex[which[i]];
+    for (i32 k = 0; k < e.after.len(); k++) {
+      Board a = e.after[k];
+      boards[i * K + k] = a;
+      points[i * K + k] = (((a.score - e.from.score) as f64) / 100.0) as~ f32;
+      live[i * K + k] = a.finished ? 0.0 : 1.0;
+      if (e.reachable[k]) { mask[i * K + k] = 0.0; }
+    }
+    choice[i * K + e.chosen] = 1.0;
+  }
+  return Batch(boards, points, live, mask, choice);
+}
+
+/** The logits of a batch, `[b, K]`: s·(points + 10·V·live) + mask, V in thousands of points. */
+Tensor logits(Device d, ValueNet net, Variable scale, Batch bt) {
+  i32 b = bt.boards.len() / K;
+  Tensor v = net.forward(d, bt.boards).reshape([b, K]);
+  Tensor q = d.tensor(bt.points, [b, K]).add(v.mul(10.0).mul(d.tensor(bt.live, [b, K])));
+  return q.mul(scale).add(d.tensor(bt.mask, [b, K]));
+}
+
+/** One training step on a batch of `size` positions: the mean cross-entropy of the choices. */
+void step(Device d, ValueNet net, Variable scale, Adam opt, Variable[] params, Batch bt, i32 size) {
+  Tensor choice = d.tensor(bt.choice, [size, K]);
+  Tensor loss = opt.minimize(() => logits(d, net, scale, bt).logSoftmax(1).mul(choice).sum([], false).div(-(size as f64)), params);
+  loss.dispose();
+  choice.dispose();
+}
+
+/** Each position's placement probabilities, `[b × K]`. */
+f32[] probabilities(Device d, ValueNet net, Variable scale, Batch bt) {
+  Tensor p = d.tidy(() => logits(d, net, scale, bt).softmax(1));
+  f32[] pv = p.valuesNow();
+  p.dispose();
+  return pv;
+}
+
+export async i32 main(Sys sys) {
+  string[] a = sys.args();
+  Device d = Device.cpu();
+  d.seed(7 as i64);
+  ValueNet net = ValueNet.create(d, ValueConfig.standard());
+  loadWeights(net.params, (await sys.readFile("models/self-taught.weights")).orElse(u8[]())).unwrap();
+  i32 train = parseInt(a[1]);
+  i32 maxEpochs = a.len() > 3 ? parseInt(a[3]) : 32;
+  Vec<Example> exs = Vec.create();
+  for (string line in splitOn(string.fromBytes((await sys.readFile(a[0])).orElse(u8[]())), 10 as u8)) {
+    if (line.len() == 0 || line.slice(0, 1) == "#") { continue; }
+    string[] f = splitOn(line, 32 as u8);
+    Board b = Board.fromCompact(f[10], parseInt(f[7]));
+    b.linesCleared = parseInt(f[6]);
+    b.score = parseInt(f[8]);
+    b.tetrises = parseInt(f[9]);
+    Placement[] places = b.placements(parseInt(f[3]));
+    Board[] after = Board[].filled(places.len(), b);
+    for (i32 k = 0; k < places.len(); k++) { after[k] = b.after(places[k]); }
+    if (places.len() > K) { trap; }
+    exs.push(Example(parseInt(f[0]), b, after, mouseReachable(places), parseInt(f[4])));
+  }
+  Example[] ex = exs.toArray();
+  i32 n = ex.len();
+  i32 games = ex[n - 1].game;
+  i32 testFrom = 0;
+  while (ex[testFrom].game <= games - TEST_GAMES) { testFrom++; }
+  if (train > testFrom) { train = testFrom; }
+  // The scale starts where the player model's β-only fit puts it, with the network's Q of the same moves.
+  Position[] ps = Position[].filled(train > 0 ? train : 1, Position(f64[](), f64[][](), bool[](), 0));
+  for (i32 i = 0; i < train; i++) {
+    f32[] v = finalScoresOf(d, net, ex[i].after, 0);
+    f64[] q = f64[].filled(v.len(), 0.0);
+    f64[][] phi = f64[][].defaulted(v.len());
+    for (i32 k = 0; k < v.len(); k++) {
+      q[k] = (v[k] as f64) - (ex[i].from.score as f64);
+      phi[k] = f64[].filled(FEATURES, 0.0);
+    }
+    ps[i] = Position(q, phi, ex[i].reachable, ex[i].chosen);
+  }
+  bool[] betaOnly = bool[].filled(FEATURES + 1, false);
+  betaOnly[0] = true;
+  Prior prior = Prior(1.0, 0.01, 1.0);
+  PlayerModel start = fitPlayer(ps, train, prior, betaOnly, PlayerModel.prior(prior).theta);
+  sys.log("humannet: N = \{train}, starting scale \{start.theta[0]}");
+  Variable scale = d.variable(d.tensor([start.theta[0] as~ f32], [1]), "scale");
+  Variable[] params = Variable[].filled(net.params.len() + 1, scale);
+  for (i32 i = 0; i < net.params.len(); i++) { params[i] = net.params[i]; }
+  Adam opt = Adam.create(a.len() > 4 ? (parseInt(a[4]) as f64) / 10000.0 : 0.0001);
+  i32 batch = 32;
+  // At most about 600 steps in all, so big N takes fewer epochs: the work stays bounded on one CPU.
+  i32 perEpoch = (train + batch - 1) / batch;
+  i32 epochs = train == 0 ? 0 : maxEpochs;
+  while (epochs > 1 && epochs * perEpoch > 600) { epochs = epochs / 2; }
+  i32[] order = i32[].filled(train, 0);
+  for (i32 i = 0; i < train; i++) { order[i] = i; }
+  f64 bestLl = -1.0e300;
+  f32[][] bestProbs = f32[][]();
+  i32 bestEpoch = 0;
+  i32 nextCheck = 1;
+  for (i32 e = 0; e <= epochs; e++) {
+    if (e > 0) {
+      for (i32 i = train - 1; i > 0; i--) {
+        i32 j = (d.random.uniform() * ((i + 1) as f64)).floor() as~ i32;
+        i32 t = order[i];
+        order[i] = order[j];
+        order[j] = t;
+      }
+      for (i32 at = 0; at < train; at += batch) {
+        i32 to = at + batch < train ? at + batch : train;
+        i32[] which = i32[].filled(to - at, 0);
+        for (i32 i = at; i < to; i++) { which[i - at] = order[i]; }
+        Batch bt = batchOf(ex, which);
+        i32 size = to - at;
+        step(d, net, scale, opt, params, bt, size);
+      }
+    }
+    if (e != nextCheck && e != epochs) { continue; }
+    nextCheck = nextCheck * 2;
+    // The held-out games.
+    f64 ll = 0.0;
+    f32[][] probs = f32[][].defaulted(n - testFrom);
+    for (i32 at = testFrom; at < n; at += 64) {
+      i32 to = at + 64 < n ? at + 64 : n;
+      i32[] which = i32[].filled(to - at, 0);
+      for (i32 i = at; i < to; i++) { which[i - at] = i; }
+      Batch bt = batchOf(ex, which);
+      f32[] pv = probabilities(d, net, scale, bt);
+      for (i32 i = at; i < to; i++) {
+        i32 c = ex[i].after.len();
+        f32[] pr = f32[].filled(c, 0.0);
+        for (i32 k = 0; k < c; k++) { pr[k] = pv[(i - at) * K + k]; }
+        probs[i - testFrom] = pr;
+        f64 pc = pr[ex[i].chosen] as f64;
+        ll += math.log(pc > 1.0e-30 ? pc : 1.0e-30);
+      }
+    }
+    ll = ll / ((n - testFrom) as f64);
+    f32[] sv = scale.valuesNow();
+    sys.log("humannet: N = \{train}, epoch \{e}: held-out log-likelihood \{ll}, scale \{sv[0]}");
+    if (ll > bestLl) {
+      bestLl = ll;
+      bestProbs = probs;
+      bestEpoch = e;
+    }
+  }
+  sys.log("humannet: N = \{train}, best epoch \{bestEpoch}: \{bestLl}");
+  Buf out = Buf.create();
+  for (i32 i = 0; i < bestProbs.len(); i++) {
+    out.pushStr("\{testFrom + i}");
+    for (f32 p in bestProbs[i]) { out.pushStr(" \{p}"); }
+    out.pushStr("\n");
+  }
+  auto w = await sys.writeFile(a[2], out.take());
+  if (w.isErr()) { sys.log("humannet: " + w.err()!); return 1; }
+  return 0;
+}

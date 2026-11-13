@@ -18,6 +18,26 @@ export string[] splitOn(string s, u8 sep) {
   return out.toArray();
 }
 
+/** A decimal number, perhaps negative, perhaps with a fraction (`0.001`, `-0.5`, `40`). Traps on anything else. */
+export f64 parseNumber(string s) {
+  u8[] b = s.toBytes();
+  if (b.len() == 0) { trap; }
+  bool neg = b[0] == 45;
+  f64 v = 0.0;
+  f64 scale = 0.0;
+  for (i32 i = neg ? 1 : 0; i < b.len(); i++) {
+    if (b[i] == 46 && scale == 0.0) {
+      scale = 1.0;
+      continue;
+    }
+    if (b[i] < 48 || b[i] > 57) { trap; }
+    v = v * 10.0 + (((b[i] as i32) - 48) as f64);
+    if (scale > 0.0) { scale *= 10.0; }
+  }
+  if (scale > 0.0) { v = v / scale; }
+  return neg ? -v : v;
+}
+
 /** A decimal integer, perhaps negative. Traps on anything else, since these files are machine-written. */
 export i32 parseInt(string s) {
   u8[] b = s.toBytes();
@@ -27,6 +47,37 @@ export i32 parseInt(string s) {
   for (i32 i = neg ? 1 : 0; i < b.len(); i++) {
     if (b[i] < 48 || b[i] > 57) { trap; }
     v = v * 10 + ((b[i] as i32) - 48);
+  }
+  return neg ? -v : v;
+}
+
+/** A decimal number as these tools write it: a sign, digits, perhaps a point and more digits, perhaps an exponent. */
+export f64 parseFloat(string s) {
+  u8[] b = s.toBytes();
+  bool neg = b.len() > 0 && b[0] == 45;
+  f64 v = 0.0;
+  f64 scale = 1.0;
+  bool point = false;
+  i32 i = neg ? 1 : 0;
+  for (; i < b.len(); i++) {
+    if (b[i] == 46) {
+      point = true;
+      continue;
+    }
+    if (b[i] < 48 || b[i] > 57) { break; }
+    f64 digit = ((b[i] as i32) - 48) as f64;
+    if (point) {
+      scale = scale / 10.0;
+      v += digit * scale;
+    } else {
+      v = v * 10.0 + digit;
+    }
+  }
+  if (i < b.len() && (b[i] == 101 || b[i] == 69)) {
+    bool eneg = i + 1 < b.len() && b[i + 1] == 45;
+    i32 e = 0;
+    for (i32 k = i + 1; k < b.len(); k++) { if (b[k] >= 48 && b[k] <= 57) { e = e * 10 + ((b[k] as i32) - 48); } }
+    for (i32 k = 0; k < e; k++) { v = eneg ? v / 10.0 : v * 10.0; }
   }
   return neg ? -v : v;
 }

@@ -1,0 +1,193 @@
+// The coach's sounds and its music, made here sample by sample: no recordings, nothing fetched. Each function answers
+// one channel at `RATE` samples a second, from -1 to 1, for `Page.sound`.
+//
+// **The sounds say what happened**: a thud when a piece lands, a rising run when lines clear (a bright one for a
+// tetris), a bell when the move was the model's own and a low droop when it cost a lot, and a fall when the game ends.
+// Moves in between are left quiet, so the sounds that do play mean something.
+//
+// **The music is a 20-second loop** at 96 beats a minute — A minor, F, C, G, twice — of a soft pad, a bass, a plucked
+// arpeggio, a light hi-hat and, the second time round, a tune. Every note ends inside the loop, so it repeats without
+// a seam.
+
+import { math } from "core";
+
+export static i32 RATE = 22050;
+static f64 TAU = 6.283185307179586;
+
+/** The frequency of a MIDI note: 69 is the A at 440. */
+f64 hz(i32 note) { return 440.0 * math.pow(2.0, ((note - 69) as f64) / 12.0); }
+
+/** A sine wave at `cycles`: folded into a quarter turn and summed to the ninth power, a few millionths out at most. */
+f64 sine(f64 cycles) {
+  f64 y = TAU * (cycles - cycles.floor()) - TAU / 2.0;
+  if (y > TAU / 4.0) { y = TAU / 2.0 - y; }
+  if (y < 0.0 - TAU / 4.0) { y = 0.0 - TAU / 2.0 - y; }
+  f64 y2 = y * y;
+  // sin(2πf) = −sin(2πf − π).
+  return 0.0 - y * (1.0 - y2 / 6.0 * (1.0 - y2 / 20.0 * (1.0 - y2 / 42.0 * (1.0 - y2 / 72.0))));
+}
+
+/** A triangle wave at `phase` cycles: softer than a square, brighter than a sine. */
+f64 triangle(f64 phase) {
+  f64 f = phase - phase.floor();
+  return f < 0.5 ? 4.0 * f - 1.0 : 3.0 - 4.0 * f;
+}
+
+/** Adds a note into `out` from `start` seconds: `wave` 0 sine, 1 triangle, 2 bell; fading by `decay` a second. */
+void note(f64[] out, f64 start, f64 seconds, f64 freq, f64 volume, i32 wave, f64 attack, f64 decay) {
+  i32 from = (start * (RATE as f64)) as~ i32;
+  i32 n = (seconds * (RATE as f64)) as~ i32;
+  for (i32 i = 0; i < n && from + i < out.len(); i++) {
+    if (from + i < 0) { continue; }
+    f64 t = (i as f64) / (RATE as f64);
+    f64 env = (t < attack ? t / attack : math.exp(0.0 - decay * (t - attack)));
+    // The last 20 ms always fade to nothing, so no note clicks off.
+    f64 left = seconds - t;
+    if (left < 0.02) { env = env * left / 0.02; }
+    f64 p = freq * t;
+    f64 v = wave == 0 ? sine(p)
+          : wave == 1 ? triangle(p)
+          : 0.7 * sine(p) + 0.3 * sine(p * 2.76) * math.exp(0.0 - 6.0 * t);
+    out[from + i] += volume * env * v;
+  }
+}
+
+/** Noise for hats and clicks: a small generator, so the same loop is made every time. */
+struct Noise {
+  i64 state;
+  f64 next(this) {
+    this.state = (this.state * (1103515245 as i64) + (12345 as i64)) % (2147483648 as i64);
+    return (((this.state >> (8 as i64)) & (65535 as i64)) as~ f64) / 32768.0 - 1.0;
+  }
+}
+
+void hiss(f64[] out, Noise rng, f64 start, f64 seconds, f64 volume, f64 decay) {
+  i32 from = (start * (RATE as f64)) as~ i32;
+  i32 n = (seconds * (RATE as f64)) as~ i32;
+  f64 last = 0.0;
+  for (i32 i = 0; i < n && from + i < out.len(); i++) {
+    f64 t = (i as f64) / (RATE as f64);
+    f64 x = rng.next();
+    // The difference of successive samples: the noise with its low end taken out, a hat rather than a rumble.
+    out[from + i] += volume * (x - last) * 0.5 * math.exp(0.0 - decay * t);
+    last = x;
+  }
+}
+
+f64[] silence(f64 seconds) { return f64[].filled((seconds * (RATE as f64)) as~ i32, 0.0); }
+
+/** A piece landing: a short drop in pitch with a click on top. */
+export f64[] landing() {
+  f64[] out = silence(0.12);
+  i32 n = out.len();
+  f64 phase = 0.0;
+  for (i32 i = 0; i < n; i++) {
+    f64 t = (i as f64) / (RATE as f64);
+    phase += (170.0 - 900.0 * t) / (RATE as f64);
+    out[i] = 0.55 * sine(phase) * math.exp(0.0 - 30.0 * t) * (1.0 - (i as f64) / (n as f64));
+  }
+  Noise rng = Noise(7 as i64);
+  hiss(out, rng, 0.0, 0.012, 0.35, 300.0);
+  return out;
+}
+
+/** The ghost stepping to the next-nearest placement. */
+export f64[] tick() {
+  f64[] out = silence(0.03);
+  note(out, 0.0, 0.03, 1760.0, 0.25, 0, 0.001, 120.0);
+  return out;
+}
+
+/** `lines` lines cleared: a rising run, one note a line; four end on a ringing chord. */
+export f64[] clearing(i32 lines) {
+  i32[] steps = [0, 4, 7, 12, 16];
+  bool tetris = lines >= 4;
+  f64[] out = silence(tetris ? 1.0 : 0.35 + 0.06 * (lines as f64));
+  f64 gap = tetris ? 0.055 : 0.065;
+  i32 count = tetris ? 5 : lines + 1;
+  for (i32 k = 0; k < count; k++) {
+    note(out, gap * (k as f64), 0.25, hz(72 + steps[k]), 0.22, 1, 0.003, 14.0);
+  }
+  if (tetris) {
+    f64 at = gap * 5.0;
+    for (i32 s in [72, 76, 79, 84]) { note(out, at, 1.0 - at, hz(s), 0.12, 2, 0.005, 3.5); }
+  }
+  return out;
+}
+
+/** The model's own move: two bell notes, a fifth apart. */
+export f64[] bell() {
+  f64[] out = silence(0.6);
+  note(out, 0.0, 0.5, hz(88), 0.16, 2, 0.002, 7.0);
+  note(out, 0.08, 0.52, hz(95), 0.14, 2, 0.002, 6.0);
+  return out;
+}
+
+/** A costly move: two low notes, falling, the second bent flat. */
+export f64[] droop(bool blunder) {
+  f64[] out = silence(blunder ? 0.7 : 0.45);
+  note(out, 0.0, 0.2, hz(blunder ? 55 : 60), 0.22, 1, 0.005, 8.0);
+  i32 from = (0.16 * (RATE as f64)) as~ i32;
+  f64 seconds = blunder ? 0.5 : 0.28;
+  i32 n = (seconds * (RATE as f64)) as~ i32;
+  f64 phase = 0.0;
+  for (i32 i = 0; i < n && from + i < out.len(); i++) {
+    f64 t = (i as f64) / (RATE as f64);
+    f64 f = hz(blunder ? 50 : 56) * (1.0 - 0.12 * t / seconds);
+    phase += f / (RATE as f64);
+    out[from + i] += 0.22 * triangle(phase) * math.exp(0.0 - 5.0 * t) * (1.0 - t / seconds);
+  }
+  return out;
+}
+
+/** The game over: a slow fall through A minor. */
+export f64[] fall() {
+  f64[] out = silence(1.3);
+  i32[] fall = [69, 64, 60, 57];
+  for (i32 k = 0; k < fall.len(); k++) { note(out, 0.18 * (k as f64), 0.7, hz(fall[k]), 0.2, 1, 0.01, 4.0); }
+  note(out, 0.72, 0.58, hz(45), 0.2, 0, 0.01, 3.0);
+  return out;
+}
+
+/** The loop: eight bars, A minor, F, C, G, twice. */
+export f64[] music() {
+  f64 beat = 60.0 / 96.0;
+  f64 bar = 4.0 * beat;
+  f64[] out = silence(8.0 * bar);
+  Noise rng = Noise(12345 as i64);
+  // Each chord's root (for the bass) and the notes of its arpeggio.
+  i32[] roots = [45, 41, 48, 43];
+  i32[][] chords = [[57, 60, 64, 69], [53, 57, 60, 65], [55, 60, 64, 67], [55, 59, 62, 67]];
+  // The tune for the second time round: a note an eighth, 0 a rest, held notes repeated as rests after them.
+  i32[] tune = [76, 0, 72, 74, 76, 0, 74, 72,  77, 0, 76, 74, 72, 0, 0, 0,
+                79, 0, 76, 74, 72, 0, 74, 76,  74, 0, 0, 71, 74, 0, 0, 0];
+  for (i32 b = 0; b < 8; b++) {
+    f64 at = (b as f64) * bar;
+    i32 c = b % 4;
+    // The pad: the chord held for the bar, swelling in and fading out.
+    for (i32 k = 0; k < 3; k++) { note(out, at, bar, hz(chords[c][k]), 0.035, 1, 0.5, 0.6); }
+    // The bass, on the first and third beats.
+    note(out, at, beat * 1.8, hz(roots[c]), 0.2, 0, 0.01, 2.5);
+    note(out, at + 2.0 * beat, beat * 1.8, hz(roots[c]), 0.16, 0, 0.01, 2.5);
+    // The arpeggio, in eighths: up the chord and back.
+    i32[] order = [0, 1, 2, 3, 2, 1, 2, 3];
+    for (i32 e = 0; e < 8; e++) {
+      note(out, at + (e as f64) * beat / 2.0, beat * 0.9, hz(chords[c][order[e]] + 12), 0.05, 1, 0.004, 7.0);
+    }
+    // The hat, on the off-beats, from the second bar.
+    if (b > 0) {
+      for (i32 e = 0; e < 4; e++) { hiss(out, rng, at + (e as f64) * beat + beat / 2.0, 0.05, 0.05, 60.0); }
+    }
+    // The tune, the second time round.
+    if (b >= 4) {
+      for (i32 e = 0; e < 8; e++) {
+        i32 m = tune[(b - 4) * 8 + e];
+        if (m == 0) { continue; }
+        i32 held = 1;
+        while (e + held < 8 && tune[(b - 4) * 8 + e + held] == 0 && held < 4) { held++; }
+        note(out, at + (e as f64) * beat / 2.0, (held as f64) * beat / 2.0, hz(m), 0.07, 2, 0.006, 2.0);
+      }
+    }
+  }
+  return out;
+}

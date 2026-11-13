@@ -1,0 +1,101 @@
+// The player model's fit: it is the prior with no moves, and it finds the weights that made the moves.
+
+import { Check } from "./check.wac";
+import { Pieces } from "../src/game.wac";
+import { FEATURES, PlayerModel, Position, Prior, fitPlayer } from "../src/human.wac";
+
+/** `n` positions of 20 placements with random Q and features, the choice drawn from the model `theta`. */
+Position[] drawn(f64[] theta, i32 n, i32 seed) {
+  Pieces rng = Pieces.seeded(seed);
+  Position[] out = Position[].filled(n, Position(f64[](), f64[][](), bool[](), 0));
+  for (i32 i = 0; i < n; i++) {
+    f64[] q = f64[].filled(20, 0.0);
+    f64[][] phi = f64[][].defaulted(20);
+    bool[] allowed = bool[].filled(20, true);
+    for (i32 k = 0; k < 20; k++) {
+      q[k] = rng.uniform() * 400.0;
+      phi[k] = f64[].filled(FEATURES, 0.0);
+      for (i32 f = 0; f < FEATURES; f++) { phi[k][f] = rng.uniform() < 0.3 ? 1.0 : 0.0; }
+    }
+    // The last placement can never be chosen, as some could not be in the old frontend.
+    allowed[19] = false;
+    Position p = Position(q, phi, allowed, 0);
+    f64[] pr = PlayerModel(theta, 0, f64[][]()).probabilities(p);
+    f64 u = rng.uniform();
+    f64 c = 0.0;
+    i32 chosen = 0;
+    for (i32 k = 0; k < 20; k++) {
+      c += pr[k];
+      if (pr[k] > 0.0 && u >= c - pr[k]) { chosen = k; }
+    }
+    out[i] = Position(q, phi, allowed, chosen);
+  }
+  return out;
+}
+
+export string test_with_no_moves_the_fit_is_the_prior() {
+  Check t = Check.create();
+  Prior prior = Prior(1.5, 0.01, 1.0);
+  f64[] truth = f64[].filled(FEATURES + 1, 0.0);
+  Position[] ps = drawn(truth, 10, 3);
+  PlayerModel m = fitPlayer(ps, 0, prior, bool[].filled(FEATURES + 1, true), PlayerModel.prior(prior).theta);
+  t.ok(m.theta[0] == 1.5, "β \{m.theta[0]}, want the prior's 1.5");
+  for (i32 j = 1; j <= FEATURES; j++) { t.ok(m.theta[j] == 0.0, "weight \{j}: \{m.theta[j]}"); }
+  return t.report();
+}
+
+export string test_the_fit_recovers_the_weights_that_made_the_choices() {
+  Check t = Check.create();
+  f64[] truth = f64[].filled(FEATURES + 1, 0.0);
+  truth[0] = 1.2;
+  truth[1] = -2.0;
+  truth[5] = 1.0;
+  Position[] ps = drawn(truth, 3000, 11);
+  Prior prior = Prior(0.0, 0.01, 0.1);
+  PlayerModel m = fitPlayer(ps, 3000, prior, bool[].filled(FEATURES + 1, true), PlayerModel.prior(prior).theta);
+  for (i32 j = 0; j <= FEATURES; j++) {
+    f64 se = m.covariance[j][j].sqrt();
+    f64 err = m.theta[j] - truth[j];
+    // Within four standard errors, which the fit's own curvature gives.
+    t.ok(err < 4.0 * se && err > -4.0 * se, "parameter \{j}: \{m.theta[j]} ± \{se}, want \{truth[j]}");
+  }
+  t.ok(m.covariance[0][0].sqrt() < 0.2, "β's standard error \{m.covariance[0][0].sqrt()} from 3,000 moves");
+  // The choices left out must get no probability.
+  t.ok(m.probabilities(ps[0])[19] == 0.0, "an unpickable placement has probability \{m.probabilities(ps[0])[19]}");
+  // β only: the features' weights stay at 0.
+  bool[] betaOnly = bool[].filled(FEATURES + 1, false);
+  betaOnly[0] = true;
+  PlayerModel b = fitPlayer(ps, 3000, prior, betaOnly, PlayerModel.prior(prior).theta);
+  for (i32 j = 1; j <= FEATURES; j++) { t.ok(b.theta[j] == 0.0, "β only, weight \{j}: \{b.theta[j]}"); }
+  return t.report();
+}
+
+export string test_positions_with_no_known_choice_are_left_out() {
+  Check t = Check.create();
+  f64[] truth = f64[].filled(FEATURES + 1, 0.0);
+  truth[0] = 1.2;
+  Position[] ps = drawn(truth, 400, 5);
+  Prior prior = Prior(0.0, 0.01, 0.1);
+  bool[] all = bool[].filled(FEATURES + 1, true);
+  PlayerModel known = fitPlayer(ps, 400, prior, all, PlayerModel.prior(prior).theta);
+  // The same positions with every other choice unknown fit as the half whose choices are known.
+  Position[] half = Position[].filled(400, ps[0]);
+  Position[] mixed = Position[].filled(400, ps[0]);
+  i32 kept = 0;
+  for (i32 i = 0; i < 400; i++) {
+    Position p = ps[i];
+    mixed[i] = i % 2 == 0 ? p : Position(p.q, p.phi, p.allowed, -1);
+    if (i % 2 == 0) {
+      half[kept] = p;
+      kept++;
+    }
+  }
+  PlayerModel m = fitPlayer(mixed, 400, prior, all, PlayerModel.prior(prior).theta);
+  PlayerModel h = fitPlayer(half, kept, prior, all, PlayerModel.prior(prior).theta);
+  for (i32 j = 0; j <= FEATURES; j++) {
+    f64 diff = m.theta[j] - h.theta[j];
+    t.ok(diff < 1.0e-9 && diff > -1.0e-9, "parameter \{j}: \{m.theta[j]} with unknown choices, \{h.theta[j]} without them");
+  }
+  t.ok(known.theta[0] > 0.0, "β from all 400: \{known.theta[0]}");
+  return t.report();
+}

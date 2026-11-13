@@ -1,0 +1,280 @@
+// A person's recorded games — from the old TypeScript frontend (turbostack-game) or the coach page — as positions this
+// project can read.
+//
+//     wac run --allow-read --allow-write tools/humandata.wac <out.txt> <turbostack-data-*.json.gz | *.jsonl>...
+//
+// A `.jsonl` file is the coach page's export (`web/coach.wac`): one move a line, already matched (`choice`), its game
+// the line's `start` and `seed`, its time `ms`. Its `q` must have one value a placement of `board.placements(piece)`,
+// or the line is left out and counted: the page and these rules disagree.
+//
+// Each `.json.gz` file is a gzipped JSON array of moves, `{from, to}` and sometimes `time` (ms since the epoch), each board a
+// turbostack-game `BoardJson`: `compact` (200 characters, `1` filled, row-major from the top), `linesCleared`,
+// `linesClearedMax`, `finished`, `score`, `tetrises`. `to` usually still holds its full rows: the frontend recorded the
+// piece in place before clearing. Give the files in the order they were recorded.
+//
+// **Each move is matched against `Board.placements`**, as turbostack-game's `getReviewData.ts` did: the piece is the
+// one whose placement, put on `from`, gives `to` — before clearing, or after it for a `to` that was already cleared.
+// The cells of a placement say which piece it is, so a move matches one placement or none. A move belongs to
+// the game whose move left its board, and a game starts at an empty board. Some moves are missing — the frontend did
+// not record moves its autoplay made — and some games were played side by side; both are counted.//
+// Writes one line a matched position, in the order played:
+//
+//     <game> <move in game> <ms since the move before, or -1> <piece> <choice> <placements> <linesCleared> <linesMax> <score> <tetrises> <compact>
+//
+// where `choice` is the index of the move in `board.placements(piece)`. Lines starting `#` are a summary.
+
+import { Sys } from "std";
+import { Buf, Map, Vec, hashString, stringEq } from "core";
+import { gzip.gunzipBytes, json.parse, json.JsonValue } from "wac";
+import { Board, Placement, pieceName } from "../src/board.wac";
+import { identity, sortedOrder } from "../src/human.wac";
+import { splitOn } from "../src/text.wac";
+
+/** The board a `BoardJson` describes. */
+Board boardOf(JsonValue j) {
+  Board b = Board.fromCompact(j.member("compact")!.text()!, j.member("linesClearedMax")!.number()! as~ i32);
+  b.linesCleared = j.member("linesCleared")!.number()! as~ i32;
+  b.finished = j.member("finished")!.boolean()!;
+  b.score = j.member("score")!.number()! as~ i32;
+  b.tetrises = j.member("tetrises")!.number()! as~ i32;
+  return b;
+}
+
+/** `b` with `p` in it and nothing cleared: what the frontend recorded as `to`. */
+string uncleared(Board b, Placement p) {
+  Board c = b.clone();
+  for (i32 k = 0; k < 16; k++) {
+    if ((p.grid & (1 << (15 - k))) == 0) { continue; }
+    i32 i = p.row + k / 4;
+    if (i < 0) { continue; }
+    c.flip(i, p.col + k % 4);
+  }
+  return c.compact();
+}
+
+bool hasFullRow(Board b) {
+  for (i32 i = 0; i < 20; i++) { if (b.rows[i] == 0x3FF) { return true; } }
+  return false;
+}
+
+bool sameBoard(Board a, Board b) {
+  return a.compact() == b.compact() && a.linesCleared == b.linesCleared && a.score == b.score;
+}
+/** A board's identity for linking moves: its cells, score and lines. */
+string keyOf(Board b) { return "\{b.compact()}/\{b.score}/\{b.linesCleared}"; }
+
+bool emptyStart(Board b) { return b.linesCleared == 0 && b.score == 0 && b.maxHeight() == 0; }
+
+i32 cells(Board b) {
+  i32 n = 0;
+  for (i32 i = 0; i < 20; i++) { for (i32 j = 0; j < 10; j++) { if (b.get(i, j)) { n++; } } }
+  return n;
+}
+
+/**
+ * Whether `to` could follow `from` after some unrecorded moves: no fewer lines or points, and, with no lines cleared
+ * between them, every cell of `from` still filled and whole pieces added.
+ */
+bool couldFollow(Board from, Board to) {
+  if (from.finished || to.score < from.score || to.linesCleared < from.linesCleared) { return false; }
+  if (to.linesCleared > from.linesCleared) { return true; }
+  for (i32 i = 0; i < 20; i++) { if ((from.rows[i] & ~to.rows[i]) != 0) { return false; } }
+  i32 added = cells(to) - cells(from);
+  return added > 0 && added % 4 == 0;
+}
+
+export async i32 main(Sys sys) {
+  string[] a = sys.args();
+  i32 moves = 0;
+  i32 none = 0;
+  i32 several = 0;
+  i32 scoreMismatch = 0;
+  i32 fromFull = 0;
+  i32 clearedTo = 0;
+  i32 orphans = 0;
+  i32 gaps = 0;
+  i32 interleaved = 0;
+  i32 duplicates = 0;
+  string lastMove = "";
+  i32 games = 0;
+  i32[] pieceCounts = i32[].filled(7, 0);
+  // Every matched move, in the order played.
+  Vec<i32> game = Vec.create();
+  Vec<i32> moveIn = Vec.create();
+  Vec<string> line = Vec.create();
+  // Each game's latest move and the board it left, by game number.
+  Vec<i32> lastOf = Vec.create();
+  Vec<Board> leftOf = Vec.create();
+  lastOf.push(-1);
+  leftOf.push(Board.empty(130));
+  // The latest move to leave each board, by `keyOf`.
+  Map<string, i32> leftBy = Map.create(hashString, stringEq);
+  f64 lastTime = -1.0;
+  for (i32 f = 1; f < a.len(); f++) {
+    // The coach page's export (`web/coach.wac`): JSON lines, one a move, already matched to its placement.
+    if (a[f].len() > 6 && a[f].slice(a[f].len() - 6, a[f].len()) == ".jsonl") {
+      Map<string, i32> gameOf = Map.create(hashString, stringEq);
+      i32 count = 0;
+      for (string cl in splitOn(string.fromBytes((await sys.readFile(a[f])).orElse(u8[]())), 10 as u8)) {
+        if (cl.len() == 0) { continue; }
+        JsonValue mv = parse(cl.toBytes()).ok()!;
+        moves++;
+        string gk = "\{mv.member("start")!.number()!}/\{mv.member("seed")!.number()!}";
+        i32? known = gameOf.get(gk);
+        if (known is null) {
+          games++;
+          gameOf.set(gk, games);
+          lastOf.push(-1);
+          leftOf.push(Board.empty(130));
+        }
+        i32 g = gameOf.get(gk)!;
+        Board from = Board.fromCompact(mv.member("board")!.text()!, 130);
+        from.linesCleared = mv.member("lines")!.number()! as~ i32;
+        from.score = mv.member("score")!.number()! as~ i32;
+        i32 piece = mv.member("piece")!.number()! as~ i32;
+        i32 choice = mv.member("choice")!.number()! as~ i32;
+        i32 places = from.placements(piece).len();
+        // The page's values are one a placement, so their count says the page and these rules agree.
+        if (choice < 0 || choice >= places || mv.member("q")!.array()!.len() != places) {
+          none++;
+          sys.log("  line \{count + 1}: choice \{choice} of \{places} placements, \{mv.member("q")!.array()!.len()} values; left out");
+          continue;
+        }
+        count++;
+        pieceCounts[piece]++;
+        i32 at = game.len();
+        game.push(g);
+        moveIn.push((mv.member("move")!.number()! as~ i32) - 1);
+        lastOf.set(g, at);
+        i32 ms = (mv.member("ms")?.number() ?? -1.0) as~ i32;
+        line.push("\{ms} \{piece} \{choice} \{places} \{from.linesCleared} 130 \{from.score} 0 \{from.compact()}");
+      }
+      sys.log("\{a[f]}: \{count} coach moves");
+      continue;
+    }
+    u8[] gz = (await sys.readFile(a[f])).orElse(u8[]());
+    JsonValue doc = parse(gunzipBytes(gz)).ok()!;
+    i32 n = doc.array()!.len();
+    // The moves are not all stored in the order they were played: where every move has its time, that is the order.
+    f64[] times = f64[].filled(n, 0.0);
+    bool timed = true;
+    for (i32 m = 0; m < n; m++) {
+      f64? t = doc.item(m)!.member("time")?.number();
+      if (t is null) { timed = false; } else { times[m] = t!; }
+    }
+    i32[] order = timed ? sortedOrder(times) : identity(n);
+    i32 moved = 0;
+    for (i32 m = 0; m < n; m++) { if (order[m] != m) { moved++; } }
+    sys.log("\{a[f]}: \{n} moves\{timed ? ", \{moved} stored out of time order" : ", no times"}");
+    lastTime = -1.0;
+    for (i32 m = 0; m < n; m++) {
+      JsonValue mv = doc.item(order[m])!;
+      moves++;
+      Board from = boardOf(mv.member("from")!);
+      Board to = boardOf(mv.member("to")!);
+      f64 time = mv.member("time")?.number() ?? -1.0;
+      if (hasFullRow(from)) { fromFull++; }
+      i32 piece = -1;
+      i32 choice = -1;
+      i32 count = 0;
+      i32 found = 0;
+      bool wasCleared = false;
+      string target = to.compact();
+      for (i32 p = 0; p < 7; p++) {
+        Placement[] ps = from.placements(p);
+        for (i32 k = 0; k < ps.len(); k++) {
+          bool hit = uncleared(from, ps[k]) == target;
+          bool hitCleared = !hit && from.after(ps[k]).compact() == target;
+          if (hit || hitCleared) {
+            found++;
+            piece = p;
+            choice = k;
+            count = ps.len();
+            wasCleared = hitCleared;
+          }
+        }
+      }
+      if (found == 0) {
+        none++;
+        sys.log("  move \{m}: matches no placement\nfrom:\n\{from.show()}to:\n\{to.show()}");
+        continue;
+      }
+      if (found > 1) { several++; }
+      if (wasCleared) { clearedTo++; }
+      Board result = from.after(from.placements(piece)[choice]);
+      // `to` was recorded before clearing, so its score and lines are `from`'s; after clearing, they are the rules'.
+      bool before = to.score == from.score && to.linesCleared == from.linesCleared;
+      bool afterwards = to.score == result.score && to.linesCleared == result.linesCleared;
+      if (!before && !afterwards) {
+        scoreMismatch++;
+        sys.log("  move \{m}: score or lines unlike either (\{to.score}/\{to.linesCleared} recorded, \{result.score}/\{result.linesCleared} by the rules)");
+      }
+      // The same move recorded twice in a row, the same millisecond as a rule: kept once.
+      string moveKey = "\{keyOf(from)} \{piece} \{choice}";
+      if (moveKey == lastMove) {
+        duplicates++;
+        if (time != lastTime) { sys.log("  move \{m}: recorded twice, \{time - lastTime} ms apart"); }
+        continue;
+      }
+      lastMove = moveKey;
+      pieceCounts[piece]++;
+      // Which game this move belongs to: the one whose move left its board. Otherwise moves are missing before it —
+      // played by the frontend's autoplay, which recorded nothing, or lost — and it goes on the latest game it could
+      // follow; or it is a fresh board, a new game.
+      i32 at = game.len();
+      i32? p = emptyStart(from) ? null : leftBy.get(keyOf(from));
+      i32 g = 0;
+      i32 mi = 0;
+      bool follows = false;
+      if (p is not null) {
+        g = game.get(p!);
+        mi = moveIn.get(p!) + 1;
+        follows = true;
+      } else if (!emptyStart(from)) {
+        for (i32 c = games; c >= 1 && g == 0; c--) { if (couldFollow(leftOf.get(c), from)) { g = c; } }
+        if (g != 0) {
+          gaps++;
+          mi = moveIn.get(lastOf.get(g)) + 2;
+        } else {
+          orphans++;
+          sys.log("  move \{m}: starts from a board no earlier game could reach (score \{from.score}, lines \{from.linesCleared}); a new game");
+        }
+      }
+      if (g == 0) {
+        games++;
+        g = games;
+        lastOf.push(-1);
+        leftOf.push(from);
+      }
+      // Another game's move came between this one and the last of its own game: two games played side by side.
+      if (lastOf.get(g) >= 0 && lastOf.get(g) != at - 1) { interleaved++; }
+      // The time to choose, where the move before it in time is the one that left its board.
+      i32 think = follows && lastOf.get(g) == at - 1 && time >= 0.0 && lastTime >= 0.0 ? (time - lastTime) as~ i32 : -1;
+      game.push(g);
+      moveIn.push(mi);
+      lastOf.set(g, at);
+      leftOf.set(g, result);
+      leftBy.set(keyOf(result), at);
+      line.push("\{think} \{piece} \{choice} \{count} \{from.linesCleared} \{from.linesMax} \{from.score} \{from.tetrises} \{from.compact()}");
+      lastTime = time;
+    }
+  }
+  string pieces = "";
+  for (i32 p = 0; p < 7; p++) { pieces += " \{pieceName(p)} \{pieceCounts[p]}"; }
+  string[] summary = [
+    "# \{moves} moves in \{games} games; \{game.len()} matched exactly one placement (\{several} more than one), \{none} none; \{duplicates} recorded twice (dropped)",
+    "# \{scoreMismatch} with a score or line count unlike the rules'; \{fromFull} starting from a board with a full row; \{clearedTo} recorded after clearing",
+    "# \{gaps} following unrecorded moves; \{interleaved} after another game's move (games played side by side); \{orphans} that no earlier game could reach",
+    "# pieces:\{pieces}",
+    "# columns: game, move in game, ms since the move before or -1, piece, choice, placements, linesCleared, linesMax, score, tetrises, compact",
+  ];
+  Buf out = Buf.create();
+  for (string s in summary) {
+    sys.log(s);
+    out.pushStr(s + "\n");
+  }
+  for (i32 i = 0; i < game.len(); i++) { out.pushStr("\{game.get(i)} \{moveIn.get(i)} \{line.get(i)}\n"); }
+  auto w = await sys.writeFile(a[0], out.take());
+  if (w.isErr()) { sys.log("humandata: " + w.err()!); return 1; }
+  return 0;
+}

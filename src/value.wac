@@ -13,7 +13,33 @@
 
 import { Device, Padding, Tensor, Variable, glorotUniform } from "tensor";
 import { Board } from "./board.wac";
-import { walledBoards } from "./legacy.wac";
+
+/**
+ * The table `packedWalledBoards` reads each row from: the line, walls and all, that each of the 1024 rows there can be
+ * makes, and the floor as a 1025th. Made once per network.
+ */
+Tensor walledLines(Device d) {
+  f32[] lines = f32[].filled(1025 * 12, 1.0);
+  for (i32 v = 0; v < 1024; v++) {
+    for (i32 j = 0; j < 10; j++) { lines[v * 12 + j + 1] = (v & (1 << (9 - j))) != 0 ? 1.0 : 0.0; }
+  }
+  return d.tensor(lines, [1025, 12]);
+}
+
+/**
+ * The boards as `walledBoards` gives them, `[n, 21, 12, 1]`, made on the device from each board's rows as numbers, each
+ * picking its line from `lines` (`walledLines`). What goes to a GPU is then 21 numbers a board instead of 252, which,
+ * for the thousands of boards a step of play values, is most of what there was to send.
+ */
+Tensor packedWalledBoards(Device d, Board[] boards, Tensor lines) {
+  f32[] rows = f32[].filled(boards.len() * 21, 1024.0);
+  for (i32 k = 0; k < boards.len(); k++) {
+    for (i32 i = 0; i < 20; i++) { rows[k * 21 + i] = boards[k].rows[i] as~ f32; }
+  }
+  // Detached: the table is no parameter, so nothing need follow the gradient back into it.
+  Tensor walled = lines.take(d.tensor(rows, [boards.len(), 21])).detach();
+  return walled.reshape([boards.len(), 21, 12, 1]);
+}
 
 export struct ValueConfig {
   i32 conv;
@@ -50,6 +76,10 @@ export static f64 SCALE = 1000.0;
 export struct ValueNet {
   ValueConfig config;
   Variable[] params;
+  /** `walledLines`, on the network's device. */
+  Tensor lines;
+  /** How many boards `valueAll` has valued for play and targets: what self-play cost, in a unit no machine sets. */
+  i64 valued;
 
   ValueNet create(Device d, ValueConfig c) {
     i32 joined = 18 * c.rows + 10 * c.cols + EXTRA;
@@ -68,7 +98,7 @@ export struct ValueNet {
       ps[k] = d.variable(init, names[k]);
       init.dispose();
     }
-    return ValueNet(c, ps);
+    return ValueNet(c, ps, walledLines(d), 0 as i64);
   }
 
   /** The lines remaining, `[n, 3]`. */
@@ -87,7 +117,7 @@ export struct ValueNet {
   Tensor forward(this, Device d, Board[] boards) {
     Variable[] p = this.params;
     i32 n = boards.len();
-    Tensor a = walledBoards(d, boards).conv2d(p[0], [1, 1], Padding.Valid, [1, 1]).add(p[1]).leakyRelu(0.01);
+    Tensor a = packedWalledBoards(d, boards, this.lines).conv2d(p[0], [1, 1], Padding.Valid, [1, 1]).add(p[1]).leakyRelu(0.01);
     Tensor rows = a.conv2d(p[2], [1, 1], Padding.Valid, [1, 1]).add(p[3]).leakyRelu(0.01).reshape([n, 18 * this.config.rows]);
     Tensor cols = a.conv2d(p[4], [1, 1], Padding.Valid, [1, 1]).add(p[5]).leakyRelu(0.01).reshape([n, 10 * this.config.cols]);
     Tensor joined = rows.concat([cols, this.extras(d, boards)], 1);
@@ -115,6 +145,23 @@ export struct ValueNet {
     Tensor t = d.tidy(() => this.forward(d, boards));
     f32[] v = t.valuesNow();
     t.dispose();
+    return this.points(boards, v);
+  }
+
+  /**
+   * `allValues` on any device: on a GPU the numbers come back once its queue has drained, which only something that
+   * can wait can wait for. On the CPU it answers at once, the same numbers.
+   */
+  async f32[] allValuesAsync(this, Device d, Board[] boards) {
+    if (boards.len() == 0) { return f32[](); }
+    Tensor t = d.tidy(() => this.forward(d, boards));
+    f32[] v = await t.values();
+    t.dispose();
+    return this.points(boards, v);
+  }
+
+  /** The network's outputs `v` for `boards`, in points, a finished board's all nothing. */
+  f32[] points(this, Board[] boards, f32[] v) {
     i32 h = this.config.heads;
     for (i32 k = 0; k < boards.len(); k++) {
       for (i32 j = 0; j < h; j++) {

@@ -1,0 +1,301 @@
+// Learn to play from nothing in one process: self-play, fit, check, repeated, the network kept on its device
+// throughout. A schedule of a few smooth knobs instead of hand-made phases, then optionally a phase that trains the
+// `dual` network's lookahead value.
+//
+//     wac run --allow-read --allow-write --allow-net tools/learn.wac [--metal] <run> [key=value ...]
+//
+// `from=<weights>` starts from a trained network and `start=<i>` at iteration i of the schedule: a later phase run on
+// its own, several ways, from one earlier run.
+//
+// **The greedy phase** (`iters` iterations; f runs from 0 to 1 across it): self-play with `generate`
+// (`src/lockstep.wac`), every target a λ-return —
+//
+// - learning rate `lr` → `lrEnd`, geometrically; exploration `eps` → `epsEnd` and λ `lambda` → `lambdaEnd`, linearly;
+// - the survival bonus `bonus`, fading to nothing by f = `bonusUntil`;
+// - the share of boards with the exact bootstrap rising from 0 at f = `exactFrom` to all of them at `exactFull`, and the
+//   boards an iteration from `boards` to `exactBoards` with it, since an exact board costs about seven times as much;
+// - each fit on the newest `window` boards, `epochs` passes in batches of `batch`, going to `exactWindow` and
+//   `exactEpochs` as the exact share rises.
+//
+// **The lookahead phase** (`dualIters` iterations, for a `dual` network): head 1 starts as a copy of head 0; games are
+// played with `dualPlay` candidates of lookahead (0: greedily), every board's head-0 target exact with λ `dualLambda`,
+// and a `dualShare` of boards given a lookahead target with `dualLook` candidates; `dualBoards` an iteration, a window
+// of `dualWindow`, `dualEpochs` passes at `dualLr`, exploration `dualEps`.
+//
+// Every `checkEvery` iterations, and after the last, the network plays games from seed 1001 (`checkGames` of them
+// greedily; in the lookahead phase `dualCheckGames` with `dualCheckLook` candidates) and is saved as
+// runs/<run>/model-<i>.weights. runs/<run>/log.txt has a line an iteration, and runs/<run>/curve.tsv the same as
+// columns. The training time it reports leaves out the checks, which measure and do not train; each line gives an
+// iteration's seconds of self-play + fitting.
+
+import { Sys } from "std";
+import { math } from "core";
+import { Adam, Device, Tensor, loadWeights, saveWeights } from "tensor";
+import { chooseDevice } from "../src/devices.wac";
+import { Board } from "../src/board.wac";
+import { GameResult, Pieces } from "../src/game.wac";
+import { Actors, Play, generate, playLockstep } from "../src/lockstep.wac";
+import { Examples, NO_TARGET } from "../src/selfplay.wac";
+import { parseNumber, splitOn } from "../src/text.wac";
+import { SCALE, ValueConfig, ValueNet } from "../src/value.wac";
+
+static string[] NAMES = [
+  "iters", "boards", "exactBoards", "games", "window", "epochs", "batch", "lr", "lrEnd", "eps", "epsEnd", "bonus",
+  "bonusUntil", "lambda", "lambdaEnd", "exactFrom", "exactFull", "exactWindow", "exactEpochs",
+  "dualIters", "dualBoards", "dualShare", "dualLook", "dualPlay", "dualLr", "dualEpochs", "dualWindow", "dualEps",
+  "dualLambda", "checkEvery", "checkGames", "dualCheckGames", "dualCheckLook", "seed", "start",
+];
+static f64[] DEFAULTS = [
+  40.0, 32000.0, 8000.0, 256.0, 64000.0, 1.0, 256.0, 0.001, 0.0001, 0.05, 0.015, 40.0,
+  0.5, 0.9, 0.5, 0.6, 0.8, 32000.0, 2.0,
+  0.0, 3000.0, 0.333, 3.0, 3.0, 0.0001, 2.0, 18000.0, 0.015,
+  0.0, 4.0, 100.0, 50.0, 3.0, 1.0, 0.0,
+];
+
+struct Settings {
+  f64[] values;
+  string config;
+  /** Weights to start from, or "" for an untrained network. */
+  string from;
+
+  f64 get(this, string name) {
+    for (i32 i = 0; i < NAMES.len(); i++) { if (NAMES[i] == name) { return this.values[i]; } }
+    trap;
+  }
+  i32 int(this, string name) { return this.get(name).round() as~ i32; }
+
+  string text(this) {
+    string s = "config=" + this.config + (this.from != "" ? " from=" + this.from : "");
+    for (i32 i = 0; i < NAMES.len(); i++) { s += " \{NAMES[i]}=\{this.values[i]}"; }
+    return s;
+  }
+}
+
+f64 clamp01(f64 v) { return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v); }
+
+async f64 seconds(Sys sys) { return ((await sys.monotonicNanos()) as~ f64) / 1e9; }
+
+/** One iteration's settings, from the schedule. */
+struct Step {
+  Play play;
+  i32 boards;
+  i32 window;
+  i32 epochs;
+  f64 rate;
+  bool dual;
+}
+
+Step stepAt(Settings s, i32 i) {
+  i32 iters = s.int("iters");
+  if (i >= iters) {
+    Play p = Play(s.get("dualEps"), s.get("dualLambda"), 0.0, 1.0, s.int("dualPlay"), s.get("dualShare"), s.int("dualLook"));
+    return Step(p, s.int("dualBoards"), s.int("dualWindow"), s.int("dualEpochs"), s.get("dualLr"), true);
+  }
+  f64 f = iters > 1 ? (i as f64) / ((iters - 1) as f64) : 1.0;
+  f64 lr = s.get("lr") * math.pow(s.get("lrEnd") / s.get("lr"), f);
+  f64 eps = s.get("eps") + (s.get("epsEnd") - s.get("eps")) * f;
+  f64 lambda = s.get("lambda") + (s.get("lambdaEnd") - s.get("lambda")) * f;
+  f64 until = s.get("bonusUntil");
+  f64 bonus = until > 0.0 ? (s.get("bonus") * clamp01(1.0 - f / until)).floor() : 0.0;
+  f64 from = s.get("exactFrom");
+  f64 full = s.get("exactFull");
+  f64 exact = full > from ? clamp01((f - from) / (full - from)) : (f >= from ? 1.0 : 0.0);
+  i32 boards = (s.get("boards") + (s.get("exactBoards") - s.get("boards")) * exact).round() as~ i32;
+  i32 window = (s.get("window") + (s.get("exactWindow") - s.get("window")) * exact).round() as~ i32;
+  i32 epochs = (s.get("epochs") + (s.get("exactEpochs") - s.get("epochs")) * exact).round() as~ i32;
+  Play p = Play(eps, lambda, bonus, exact, 0, 0.0, 0);
+  return Step(p, boards, window, epochs, lr, false);
+}
+
+/** Fit `net` to `ex`, a twentieth held out: the training error, held-out error and lookahead held-out error, in points. */
+async f64[] fit(Device d, ValueNet net, Examples ex, i32 epochs, f64 rate, i32 batch) {
+  i32 n = ex.len();
+  i32 heads = net.config.heads;
+  i32[] order = i32[].filled(n, 0);
+  for (i32 i = 0; i < n; i++) { order[i] = i; }
+  for (i32 i = n - 1; i > 0; i--) {
+    i32 j = (d.random.uniform() * ((i + 1) as f64)) as~ i32;
+    i32 t = order[i];
+    order[i] = order[j];
+    order[j] = t;
+  }
+  i32 held = n / 20;
+  Adam opt = Adam.create(rate);
+  f64 last = 0.0;
+  for (i32 e = 0; e < epochs; e++) {
+    f64 total = 0.0;
+    i32 steps = 0;
+    for (i32 at = held; at + batch <= n; at += batch) {
+      Board[] bs = Board[].filled(batch, ex.boards.get(0));
+      f32[] y = f32[].filled(batch * heads, 0.0);
+      f32[] mask = f32[].filled(batch * heads, 0.0);
+      f64 count = 0.0;
+      for (i32 i = 0; i < batch; i++) {
+        i32 o = order[at + i];
+        bs[i] = ex.boards.get(o);
+        y[i * heads] = ((ex.targets.get(o) as f64) / SCALE) as~ f32;
+        mask[i * heads] = 1.0;
+        count += 1.0;
+        if (heads > 1 && ex.looks.get(o) != NO_TARGET) {
+          y[i * heads + 1] = ((ex.looks.get(o) as f64) / SCALE) as~ f32;
+          mask[i * heads + 1] = 1.0;
+          count += 1.0;
+        }
+      }
+      Tensor yt = d.tensor(y, [batch, heads]);
+      Tensor mt = d.tensor(mask, [batch, heads]);
+      Tensor loss = opt.minimize(() => net.forward(d, bs).squaredDifference(yt).mul(mt).sum([], false).div(count), net.params);
+      f32[] lv = await loss.values();
+      total += lv[0] as f64;
+      steps++;
+      loss.dispose();
+      yt.dispose();
+      mt.dispose();
+    }
+    last = steps > 0 ? (total / (steps as f64)).sqrt() * SCALE : 0.0;
+  }
+  f64 se = 0.0;
+  f64 lookSe = 0.0;
+  i32 looks = 0;
+  for (i32 at = 0; at < held; at += batch) {
+    i32 to = at + batch < held ? at + batch : held;
+    Board[] bs = Board[].filled(to - at, ex.boards.get(0));
+    for (i32 i = at; i < to; i++) { bs[i - at] = ex.boards.get(order[i]); }
+    f32[] v = await net.allValuesAsync(d, bs);
+    for (i32 i = at; i < to; i++) {
+      f64 diff = (v[(i - at) * heads] as f64) - (ex.targets.get(order[i]) as f64);
+      se += diff * diff;
+      if (heads > 1 && ex.looks.get(order[i]) != NO_TARGET) {
+        f64 ld = (v[(i - at) * heads + 1] as f64) - (ex.looks.get(order[i]) as f64);
+        lookSe += ld * ld;
+        looks++;
+      }
+    }
+  }
+  return [last, held > 0 ? (se / (held as f64)).sqrt() : 0.0, looks > 0 ? (lookSe / (looks as f64)).sqrt() : 0.0];
+}
+
+/** Head 1 made a copy of head 0, so the lookahead value starts from the greedy one. */
+async void copyHead(Device d, ValueNet net) {
+  i32 h = net.config.heads;
+  f32[] k = await net.params[10].values();
+  for (i32 r = 0; r < k.len() / h; r++) { k[r * h + 1] = k[r * h]; }
+  net.params[10].assign(d.tensor(k, net.params[10].shape));
+  f32[] b = await net.params[11].values();
+  b[1] = b[0];
+  net.params[11].assign(d.tensor(b, net.params[11].shape));
+}
+
+/** The mean score of `rs` and its standard error. */
+f64[] meanOf(GameResult[] rs) {
+  f64 sum = 0.0;
+  f64 sq = 0.0;
+  i32 n = rs.len();
+  for (GameResult r in rs) {
+    sum += r.score as f64;
+    sq += (r.score as f64) * (r.score as f64);
+  }
+  f64 mean = sum / (n as f64);
+  f64 sd = n > 1 ? ((sq / (n as f64) - mean * mean) * (n as f64) / ((n - 1) as f64)).sqrt() : 0.0;
+  return [mean, sd / (n as f64).sqrt()];
+}
+
+export async i32 main(Sys sys) {
+  auto chosen = await chooseDevice(sys);
+  if (chosen.isErr()) {
+    sys.log("learn: " + chosen.err()!);
+    return 1;
+  }
+  string[] a = chosen.ok()!.args;
+  Device d = chosen.ok()!.device;
+  if (a.len() == 0) {
+    sys.log("usage: learn.wac [--metal] <run> [key=value ...]");
+    return 1;
+  }
+  Settings s = Settings(f64[].filled(DEFAULTS.len(), 0.0), "dual", "");
+  for (i32 i = 0; i < DEFAULTS.len(); i++) { s.values[i] = DEFAULTS[i]; }
+  for (i32 k = 1; k < a.len(); k++) {
+    string[] kv = splitOn(a[k], 61 as u8);
+    if (kv.len() != 2) { sys.log("learn: not key=value: " + a[k]); return 1; }
+    if (kv[0] == "config") {
+      s.config = kv[1];
+      continue;
+    }
+    if (kv[0] == "from") {
+      s.from = kv[1];
+      continue;
+    }
+    bool known = false;
+    for (i32 i = 0; i < NAMES.len(); i++) {
+      if (NAMES[i] == kv[0]) {
+        s.values[i] = parseNumber(kv[1]);
+        known = true;
+      }
+    }
+    if (!known) { sys.log("learn: no setting named " + kv[0]); return 1; }
+  }
+  string dir = "runs/" + a[0];
+  auto made = await sys.files().mkdir(dir, true);
+  if (made.isErr()) { sys.log("learn: cannot make " + dir); return 1; }
+  d.seed((s.int("seed") * 4242) as i64);
+  ValueNet net = ValueNet.create(d, ValueConfig.named(s.config));
+  if (s.from != "") {
+    auto loaded = loadWeights(net.params, (await sys.readFile(s.from)).orElse(u8[]()));
+    if (loaded.isErr()) { sys.log("learn: " + loaded.err()!); return 1; }
+  }
+  Pieces rng = Pieces.seeded(s.int("seed") * 7919 + 1);
+  string log = s.text() + "\n";
+  string curve = "iteration\tphase\tseconds\tboards\tvalued\tfitted\tlr\teps\tlambda\tbonus\texact\ttrainError\theldOut\tlookHeldOut\tcheck\tcheckError\tcheckLook\n";
+  sys.log(s.text());
+  i32 total = s.int("iters") + s.int("dualIters");
+  f64 trained = 0.0;
+  i64 boards = 0 as i64;
+  i64 fitted = 0 as i64;
+  Examples[] recent = Examples[]();
+  Actors actors = Actors.create();
+  for (i32 i = s.int("start"); i < total; i++) {
+    Step st = stepAt(s, i);
+    f64 t0 = await seconds(sys);
+    if (st.dual && i == s.int("iters") && s.config != "standard") { await copyHead(d, net); }
+    Examples fresh = await generate(d, net, rng, st.boards, s.int("games"), st.play, actors);
+    boards += fresh.len() as i64;
+    f64 tg = await seconds(sys);
+    // The newest `window` boards: whole iterations, dropping the oldest while what is left still fills it.
+    Examples[] kept = Examples[].filled(recent.len() + 1, fresh);
+    i32 have = fresh.len();
+    i32 keep = 1;
+    for (i32 r = recent.len() - 1; r >= 0 && have < st.window; r--) {
+      kept[keep] = recent[r];
+      have += recent[r].len();
+      keep++;
+    }
+    recent = Examples[].filled(keep, fresh);
+    for (i32 r = 0; r < keep; r++) { recent[r] = kept[keep - 1 - r]; }
+    Examples window = Examples.create();
+    for (Examples e in recent) { window.extend(e); }
+    f64[] err = await fit(d, net, window, st.epochs, st.rate, s.int("batch"));
+    fitted += ((window.len() - window.len() / 20) * st.epochs) as i64;
+    f64 t1 = await seconds(sys);
+    trained += t1 - t0;
+    string line = "iteration \{i + 1}\{st.dual ? " (lookahead)" : ""}: \{fresh.len()} boards, lr \{st.rate}, eps \{st.play.epsilon}, λ \{st.play.lambda}, bonus \{st.play.bonus}, exact \{(st.play.exact * 100.0).round()}%; fit \{window.len()}: error \{err[0].round()}, held out \{err[1].round()}\{st.dual ? ", lookahead \{err[2].round()}" : ""} (\{((tg - t0) * 10.0).round() / 10.0} + \{((t1 - tg) * 10.0).round() / 10.0} s, \{trained.round()} s in all)";
+    string check = "\t\t";
+    if ((i + 1) % s.int("checkEvery") == 0 || i + 1 == total) {
+      i32 games = st.dual ? s.int("dualCheckGames") : s.int("checkGames");
+      i32 look = st.dual ? s.int("dualCheckLook") : 0;
+      i32[] seeds = i32[].filled(games, 0);
+      for (i32 g = 0; g < games; g++) { seeds[g] = 1001 + g; }
+      f64[] m = meanOf(await playLockstep(d, net, seeds, 130, 0, look));
+      line += "; games 1001-\{1000 + games}\{look > 0 ? " with lookahead" : ""}: \{m[0].round()} ± \{m[1].round()}";
+      check = "\{m[0]}\t\{m[1]}\t\{look}";
+      auto w = await sys.writeFile("\{dir}/model-\{i + 1}.weights", await saveWeights(net.params));
+      if (w.isErr()) { sys.log("learn: " + w.err()!); return 1; }
+    }
+    sys.log(line);
+    log += line + "\n";
+    curve += "\{i + 1}\t\{st.dual ? "lookahead" : "greedy"}\t\{trained}\t\{boards}\t\{net.valued}\t\{fitted}\t\{st.rate}\t\{st.play.epsilon}\t\{st.play.lambda}\t\{st.play.bonus}\t\{st.play.exact}\t\{err[0]}\t\{err[1]}\t\{err[2]}\t\{check}\n";
+    auto wl = await sys.writeFile(dir + "/log.txt", log.toBytes());
+    auto wc = await sys.writeFile(dir + "/curve.tsv", curve.toBytes());
+    if (wl.isErr() || wc.isErr()) { sys.log("learn: cannot write the log"); return 1; }
+  }
+  return 0;
+}

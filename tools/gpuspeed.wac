@@ -1,0 +1,66 @@
+// The standard value network on the CPU and on a Metal server: boards a second valued, at the batch sizes play and
+// training use, and milliseconds a training step of 256. Needs `dist/wac-tensor-metal` (wac-tensor) running.
+//
+//     wac run --allow-net tools/gpuspeed.wac [port]
+import { Sys } from "std";
+import { Result, Ticket } from "core";
+import { Adam, Device, Tensor, metalDevice, portFrom } from "tensor";
+import { Board } from "../src/board.wac";
+import { Pieces } from "../src/game.wac";
+import { ValueConfig, ValueNet } from "../src/value.wac";
+
+async f64 seconds(Sys sys) {
+  i64 t = await sys.monotonicNanos();
+  return (t as~ f64) / 1e9;
+}
+
+async void measure(Sys sys, string label, Device d, Board b) {
+  ValueNet net = ValueNet.create(d, ValueConfig.standard());
+  i32[] sizes = [25, 175, 1750, 6400];
+  for (i32 n in sizes) {
+    Board[] bs = Board[].filled(n, b);
+    i32 reps = 40000 / n;
+    if (reps > 200) { reps = 200; }
+    Tensor w = d.tidy(() => net.forward(d, bs));
+    f32[] wv = await w.values();
+    w.dispose();
+    f64 t0 = await seconds(sys);
+    for (i32 r = 0; r < reps; r++) {
+      Tensor t = d.tidy(() => net.forward(d, bs));
+      f32[] v = await t.values();
+      t.dispose();
+    }
+    f64 s = (await seconds(sys)) - t0;
+    sys.log("\{label}, batch \{n}: \{((reps * n) as f64 / s).round()} boards/s, \{(s * 1000.0 / (reps as f64) * 100.0).round() / 100.0} ms a batch");
+  }
+  Board[] batch = Board[].filled(256, b);
+  Tensor y = d.zeros([256, 1]);
+  Adam opt = Adam.create(0.001);
+  Tensor l0 = opt.minimize(() => net.forward(d, batch).squaredDifference(y).mean([], false), net.params);
+  f32[] lv0 = await l0.values();
+  l0.dispose();
+  i32 steps = 20;
+  f64 t1 = await seconds(sys);
+  for (i32 k = 0; k < steps; k++) {
+    Tensor l = opt.minimize(() => net.forward(d, batch).squaredDifference(y).mean([], false), net.params);
+    f32[] lv = await l.values();
+    l.dispose();
+  }
+  f64 s1 = (await seconds(sys)) - t1;
+  sys.log("\{label}, training step of 256: \{(s1 * 1000.0 / (steps as f64) * 100.0).round() / 100.0} ms");
+}
+
+export async i32 main(Sys sys) {
+  Pieces p = Pieces.seeded(9);
+  Board b = Board.empty(130);
+  for (i32 i = 0; i < 30; i++) { b = b.choices(p.next())[0]; }
+  await measure(sys, "cpu", Device.cpu(), b);
+  fn<void(string)> warn = (string s) => { sys.log(s); };
+  Result<Device, string> gpu = await metalDevice(sys.net(), "127.0.0.1", portFrom(sys.args()), warn);
+  if (gpu.isErr()) {
+    sys.log("no Metal: " + gpu.err()!);
+    return 1;
+  }
+  await measure(sys, "metal", gpu.ok()!, b);
+  return 0;
+}

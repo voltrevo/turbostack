@@ -1,16 +1,19 @@
 // Fit the network to the targets workers made: the next iteration's network.
 //
-//     wac run --allow-read --allow-write tools/fit.wac <config> <in.weights|none> <out.weights> <epochs[:rate‱[:divisor]]> <data.bin>...
+//     wac run --allow-read --allow-write tools/fit.wac [--metal] <config> <in.weights|none> <out.weights> <epochs[:rate‱[:divisor]]> <data.bin>...
 //
 // The learning rate is Adam's 0.001 unless given, in ten-thousandths, after the epochs: `1:3` is one epoch at 0.0003,
 // and `2:1:4` two epochs at 0.000025.
 //
 // A twentieth of the boards is held out and only measured, so the printed error says whether the network is learning
 // the targets or memorising them. Errors are root mean square, in points.
+//
+// With `--metal` (and `--allow-net`) it fits on a Metal server (`src/devices.wac`); the same steps in the same order.
 
 import { Sys } from "std";
-import { Device, Tensor, loadWeights, saveWeightsNow, tensorsOf } from "tensor";
+import { Device, Tensor, loadWeights, saveWeights, tensorsOf } from "tensor";
 import { Adam } from "tensor";
+import { chooseDevice } from "../src/devices.wac";
 import { Board } from "../src/board.wac";
 import { Examples, NO_TARGET } from "../src/selfplay.wac";
 import { parseInt, splitOn } from "../src/text.wac";
@@ -42,8 +45,13 @@ f32[][] sliceTargets(Examples ex, i32[] order, i32 from, i32 to, i32 heads) {
 }
 
 export async i32 main(Sys sys) {
-  string[] a = sys.args();
-  Device d = Device.cpu();
+  auto chosen = await chooseDevice(sys);
+  if (chosen.isErr()) {
+    sys.log("fit: " + chosen.err()!);
+    return 1;
+  }
+  string[] a = chosen.ok()!.args;
+  Device d = chosen.ok()!.device;
   d.seed(4242 as i64);
   ValueNet net = ValueNet.create(d, ValueConfig.named(a[0]));
   if (a[1] != "none") {
@@ -81,7 +89,8 @@ export async i32 main(Sys sys) {
       Tensor y = d.tensor(ym[0], [batch, heads]);
       Tensor mask = d.tensor(ym[1], [batch, heads]);
       Tensor loss = opt.minimize(() => net.forward(d, bs).squaredDifference(y).mul(mask).sum([], false).div(count), net.params);
-      total += loss.item() as f64;
+      f32[] lv = await loss.values();
+      total += lv[0] as f64;
       steps++;
       loss.dispose();
       y.dispose();
@@ -95,7 +104,7 @@ export async i32 main(Sys sys) {
   i32 looks = 0;
   for (i32 at = 0; at < held; at += batch) {
     i32 to = at + batch < held ? at + batch : held;
-    f32[] v = net.allValues(d, slice(ex, order, at, to));
+    f32[] v = await net.allValuesAsync(d, slice(ex, order, at, to));
     for (i32 i = at; i < to; i++) {
       f64 diff = (v[(i - at) * heads] as f64) - (ex.targets.get(order[i]) as f64);
       se += diff * diff;
@@ -108,7 +117,7 @@ export async i32 main(Sys sys) {
   }
   string lookText = looks > 0 ? ", lookahead held-out error \{(lookSe / (looks as f64)).sqrt().round()} (\{looks})" : "";
   sys.log("fit: \{n} boards, training error \{last.round()}, held-out error \{(se / (held as f64)).sqrt().round()}\{lookText}");
-  auto w = await sys.writeFile(a[2], saveWeightsNow(net.params));
+  auto w = await sys.writeFile(a[2], await saveWeights(net.params));
   if (w.isErr()) { sys.log("fit: " + w.err()!); return 1; }
   return 0;
 }

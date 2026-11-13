@@ -1,0 +1,399 @@
+// A model of one person's play, for the coach: how likely they are to make each placement.
+//
+// Per position, P(placement k) ∝ exp(β·Q_k/100 + w·φ_k), where Q_k is the points placement k scores plus the
+// network's value of the board it leaves — what the engine thinks of it, in points — and φ_k a few readable facts
+// about it (`FEATURE_NAMES`). β says how closely the player follows the engine: it is the log-odds, per 100 points of
+// Q, of one placement over another. Each weight in w is how much more (or less) than that the player likes a kind of
+// placement, in the same log-odds. The log-likelihood is concave in (β, w), so Newton's method fits it exactly in a
+// few steps, from a handful of moves, on the player's own device. A penalty pulls w towards 0 and β towards a prior,
+// so with no moves the model is the prior, and each weight moves only as far as the player's moves show.
+
+import { math } from "core";
+import { Board, Placement } from "./board.wac";
+
+/** The readable facts about a placement, in `placementFeatures`' order. */
+export static string[] FEATURE_NAMES = [
+  "holes made",
+  "landing height (4 rows)",
+  "max height change (2 rows)",
+  "bumpiness change (4 rows)",
+  "single",
+  "double",
+  "triple",
+  "tetris",
+  "blocks the well",
+  "tuck or spin",
+  "wells made",
+  "engine's top choice",
+  "log gap to the best",
+  "greedy-best, not lookahead-best",
+];
+export static i32 FEATURES = 14;
+
+/** The empty cells with a filled cell somewhere above them. */
+i32 holes(Board b) {
+  i32 n = 0;
+  for (i32 j = 0; j < 10; j++) {
+    i32 c = b.cols[j];
+    i32 h = b.height(j);
+    for (i32 i = 0; i < h; i++) { if ((c & (1 << i)) == 0) { n++; } }
+  }
+  return n;
+}
+
+/** The sum of the height differences between neighbouring columns. */
+i32 bumpiness(Board b) {
+  i32 s = 0;
+  for (i32 j = 0; j < 9; j++) {
+    i32 d = b.height(j) - b.height(j + 1);
+    s += d < 0 ? -d : d;
+  }
+  return s;
+}
+
+/** How far column j is below the lower of its neighbours, a wall counting as the top. */
+i32 wellDepth(Board b, i32 j) {
+  i32 left = j == 0 ? 20 : b.height(j - 1);
+  i32 right = j == 9 ? 20 : b.height(j + 1);
+  i32 d = (left < right ? left : right) - b.height(j);
+  return d > 0 ? d : 0;
+}
+
+/** Columns at least three below both neighbours. */
+i32 wells(Board b) {
+  i32 n = 0;
+  for (i32 j = 0; j < 10; j++) { if (wellDepth(b, j) >= 3) { n++; } }
+  return n;
+}
+
+/** The board's well: its deepest column three or more below both neighbours, or -1. */
+i32 wellColumn(Board b) {
+  i32 best = -1;
+  i32 depth = 2;
+  for (i32 j = 0; j < 10; j++) {
+    i32 d = wellDepth(b, j);
+    if (d > depth) {
+      depth = d;
+      best = j;
+    }
+  }
+  return best;
+}
+
+/** The index of the largest value, the first on a tie. */
+export i32 best(f64[] v) {
+  i32 b = 0;
+  for (i32 i = 1; i < v.len(); i++) { if (v[i] > v[b]) { b = i; } }
+  return b;
+}
+
+/**
+ * φ for each of `ps` on `b`, `after` the boards they leave: `q` is the engine's value of each, and `look` the
+ * lookahead engine's, or empty for none (then the last feature is 0).
+ */
+export f64[][] placementFeatures(Board b, Placement[] ps, Board[] after, f64[] q, f64[] look) {
+  f64[][] out = f64[][].defaulted(ps.len());
+  i32 h0 = holes(b);
+  i32 m0 = b.maxHeight();
+  i32 b0 = bumpiness(b);
+  i32 w0 = wells(b);
+  i32 well = wellColumn(b);
+  i32[] heights = i32[].filled(10, 0);
+  for (i32 j = 0; j < 10; j++) { heights[j] = b.height(j); }
+  i32 top = best(q);
+  i32 lookTop = look.len() > 0 ? best(look) : top;
+  f64 qmax = q[top];
+  for (i32 k = 0; k < ps.len(); k++) {
+    Placement p = ps[k];
+    Board a = after[k];
+    f64 rowSum = 0.0;
+    bool tuck = false;
+    bool inWell = false;
+    for (i32 c = 0; c < 16; c++) {
+      if ((p.grid & (1 << (15 - c))) == 0) { continue; }
+      i32 i = p.row + c / 4;
+      i32 j = p.col + c % 4;
+      rowSum += i as f64;
+      // A cell at or under its column's top could not have dropped straight there.
+      if (20 - i <= heights[j]) { tuck = true; }
+      if (j == well) { inWell = true; }
+    }
+    i32 cleared = a.linesCleared - b.linesCleared;
+    f64[] f = f64[].filled(FEATURES, 0.0);
+    f[0] = (holes(a) - h0) as f64;
+    f[1] = (19.5 - rowSum / 4.0) / 4.0;
+    f[2] = ((a.maxHeight() - m0) as f64) / 2.0;
+    f[3] = ((bumpiness(a) - b0) as f64) / 4.0;
+    if (cleared >= 1) { f[3 + cleared] = 1.0; }
+    f[8] = inWell && cleared == 0 ? 1.0 : 0.0;
+    f[9] = tuck ? 1.0 : 0.0;
+    f[10] = (wells(a) - w0) as f64;
+    f[11] = k == top ? 1.0 : 0.0;
+    f[12] = math.log1p((qmax - q[k]) / 100.0);
+    f[13] = k == top && lookTop != top ? 1.0 : 0.0;
+    out[k] = f;
+  }
+  return out;
+}
+
+/**
+ * Which placements the old frontend let a player pick: it chose the placement whose cells' centre was nearest the
+ * mouse, the first on a tie, so a placement with the same centre as an earlier one could never be picked.
+ */
+export bool[] mouseReachable(Placement[] ps) {
+  bool[] ok = bool[].filled(ps.len(), true);
+  f64[] ci = f64[].filled(ps.len(), 0.0);
+  f64[] cj = f64[].filled(ps.len(), 0.0);
+  for (i32 k = 0; k < ps.len(); k++) {
+    for (i32 c = 0; c < 16; c++) {
+      if ((ps[k].grid & (1 << (15 - c))) == 0) { continue; }
+      ci[k] += (ps[k].row + c / 4) as f64;
+      cj[k] += (ps[k].col + c % 4) as f64;
+    }
+    for (i32 e = 0; e < k; e++) { if (ci[e] == ci[k] && cj[e] == cj[k]) { ok[k] = false; } }
+  }
+  return ok;
+}
+
+/** One position as the model sees it. */
+export struct Position {
+  /** The engine's Q of each placement, in points. */
+  f64[] q;
+  /** Each placement's φ. */
+  f64[][] phi;
+  /** Which placements could be chosen. */
+  bool[] allowed;
+  /** The placement chosen, or -1 for none known. */
+  i32 chosen;
+}
+
+/** Where the penalty pulls: β towards `beta` with weight `betaWeight`, each w towards 0 with `featureWeight`. */
+export struct Prior {
+  f64 beta;
+  f64 betaWeight;
+  f64 featureWeight;
+}
+
+/** A fitted player: β, then a weight for each feature (0 for those not used). */
+export struct PlayerModel {
+  f64[] theta;
+  /** Newton steps the fit took. */
+  i32 steps;
+  /** The inverse of the penalised log-likelihood's negative Hessian at the fit: its diagonal is each parameter's variance. */
+  f64[][] covariance;
+
+  PlayerModel prior(Prior p) {
+    f64[] t = f64[].filled(FEATURES + 1, 0.0);
+    t[0] = p.beta;
+    return PlayerModel(t, 0, f64[][]());
+  }
+
+  /** The probability of each placement of `p`. */
+  f64[] probabilities(this, Position p) { return softmax(this.theta, p, allUsed()); }
+}
+
+bool[] allUsed() { return bool[].filled(FEATURES + 1, true); }
+
+f64[] softmax(f64[] theta, Position p, bool[] use) {
+  i32 n = p.q.len();
+  f64[] z = f64[].filled(n, 0.0);
+  f64 m = -1.0e300;
+  for (i32 k = 0; k < n; k++) {
+    if (!p.allowed[k]) { continue; }
+    f64 v = theta[0] * p.q[k] / 100.0;
+    for (i32 f = 0; f < FEATURES; f++) { if (use[f + 1]) { v += theta[f + 1] * p.phi[k][f]; } }
+    z[k] = v;
+    if (v > m) { m = v; }
+  }
+  f64 s = 0.0;
+  for (i32 k = 0; k < n; k++) {
+    if (!p.allowed[k]) { continue; }
+    z[k] = math.exp(z[k] - m);
+    s += z[k];
+  }
+  for (i32 k = 0; k < n; k++) { z[k] = p.allowed[k] ? z[k] / s : 0.0; }
+  return z;
+}
+
+/** The penalised log-likelihood of the first `count` of `ps`. */
+f64 objective(Position[] ps, i32 count, f64[] theta, bool[] use, Prior prior) {
+  f64 ll = 0.0;
+  for (i32 i = 0; i < count; i++) {
+    // A position whose choice is not known (`chosen` -1) says nothing about the player: it is left out, as in the fit.
+    if (ps[i].chosen < 0) { continue; }
+    f64[] pr = softmax(theta, ps[i], use);
+    ll += math.log(pr[ps[i].chosen] > 1.0e-300 ? pr[ps[i].chosen] : 1.0e-300);
+  }
+  f64 db = theta[0] - prior.beta;
+  ll -= 0.5 * prior.betaWeight * db * db;
+  for (i32 f = 1; f <= FEATURES; f++) { if (use[f]) { ll -= 0.5 * prior.featureWeight * theta[f] * theta[f]; } }
+  return ll;
+}
+
+/**
+ * The model fitted to the first `count` of `ps` by Newton's method on the penalised log-likelihood, from `start`:
+ * β always, and the features `use` marks (`use[f + 1]` for feature f). Stops when a step changes no parameter by more
+ * than 1e-6, or after 50 steps.
+ */
+export PlayerModel fitPlayer(Position[] ps, i32 count, Prior prior, bool[] use, f64[] start) {
+  i32 d = FEATURES + 1;
+  f64[] theta = f64[].filled(d, 0.0);
+  for (i32 j = 0; j < d; j++) { theta[j] = use[j] ? start[j] : 0.0; }
+  f64 current = objective(ps, count, theta, use, prior);
+  i32 steps = 0;
+  f64[][] cov = f64[][]();
+  while (true) {
+    // The gradient and the negative Hessian, over the parameters in use.
+    f64[] g = f64[].filled(d, 0.0);
+    f64[][] h = f64[][].defaulted(d);
+    for (i32 j = 0; j < d; j++) { h[j] = f64[].filled(d, 0.0); }
+    f64[] x = f64[].filled(d, 0.0);
+    f64[] mean = f64[].filled(d, 0.0);
+    for (i32 i = 0; i < count; i++) {
+      Position p = ps[i];
+      if (p.chosen < 0) { continue; }
+      f64[] pr = softmax(theta, p, use);
+      for (i32 j = 0; j < d; j++) { mean[j] = 0.0; }
+      for (i32 k = 0; k < p.q.len(); k++) {
+        if (pr[k] == 0.0) { continue; }
+        x[0] = p.q[k] / 100.0;
+        for (i32 f = 0; f < FEATURES; f++) { x[f + 1] = use[f + 1] ? p.phi[k][f] : 0.0; }
+        for (i32 j = 0; j < d; j++) {
+          mean[j] += pr[k] * x[j];
+          if (x[j] == 0.0) { continue; }
+          for (i32 l = 0; l <= j; l++) { h[j][l] += pr[k] * x[j] * x[l]; }
+        }
+      }
+      g[0] += p.q[p.chosen] / 100.0 - mean[0];
+      for (i32 f = 0; f < FEATURES; f++) { if (use[f + 1]) { g[f + 1] += p.phi[p.chosen][f] - mean[f + 1]; } }
+      for (i32 j = 0; j < d; j++) {
+        if (mean[j] == 0.0) { continue; }
+        for (i32 l = 0; l <= j; l++) { h[j][l] -= mean[j] * mean[l]; }
+      }
+    }
+    g[0] -= prior.betaWeight * (theta[0] - prior.beta);
+    h[0][0] += prior.betaWeight;
+    for (i32 j = 1; j < d; j++) {
+      if (use[j]) {
+        g[j] -= prior.featureWeight * theta[j];
+        h[j][j] += prior.featureWeight;
+      } else {
+        // A parameter not in use stays at 0: its row is the identity and its gradient nothing.
+        for (i32 l = 0; l < d; l++) { h[j][l] = 0.0; h[l][j] = 0.0; }
+        h[j][j] = 1.0;
+        g[j] = 0.0;
+      }
+    }
+    for (i32 j = 0; j < d; j++) { for (i32 l = j + 1; l < d; l++) { h[j][l] = h[l][j]; } }
+    f64[][] chol = cholesky(h);
+    cov = inverse(chol);
+    if (steps >= 50) { break; }
+    f64[] step = solve(chol, g);
+    // Halve the step until it improves the objective: Newton's full step can overshoot far from the optimum.
+    f64 scale = 1.0;
+    f64[] next = f64[].filled(d, 0.0);
+    f64 value = current;
+    for (i32 tries = 0; tries < 30; tries++) {
+      for (i32 j = 0; j < d; j++) { next[j] = theta[j] + scale * step[j]; }
+      value = objective(ps, count, next, use, prior);
+      if (value >= current - 1.0e-12) { break; }
+      scale = scale / 2.0;
+    }
+    f64 change = 0.0;
+    for (i32 j = 0; j < d; j++) {
+      f64 c = scale * step[j];
+      if ((c < 0.0 ? -c : c) > change) { change = c < 0.0 ? -c : c; }
+    }
+    theta = next;
+    current = value;
+    steps++;
+    if (change < 1.0e-6) { break; }
+  }
+  return PlayerModel(theta, steps, cov);
+}
+
+/** The lower-triangular L with L·Lᵀ = a, for a symmetric positive definite a. */
+f64[][] cholesky(f64[][] a) {
+  i32 n = a.len();
+  f64[][] l = f64[][].defaulted(n);
+  for (i32 i = 0; i < n; i++) { l[i] = f64[].filled(n, 0.0); }
+  for (i32 i = 0; i < n; i++) {
+    for (i32 j = 0; j <= i; j++) {
+      f64 s = a[i][j];
+      for (i32 k = 0; k < j; k++) { s -= l[i][k] * l[j][k]; }
+      if (i == j) {
+        l[i][i] = (s > 1.0e-12 ? s : 1.0e-12).sqrt();
+      } else {
+        l[i][j] = s / l[j][j];
+      }
+    }
+  }
+  return l;
+}
+
+/** x with L·Lᵀ·x = b. */
+f64[] solve(f64[][] l, f64[] b) {
+  i32 n = b.len();
+  f64[] y = f64[].filled(n, 0.0);
+  for (i32 i = 0; i < n; i++) {
+    f64 s = b[i];
+    for (i32 k = 0; k < i; k++) { s -= l[i][k] * y[k]; }
+    y[i] = s / l[i][i];
+  }
+  f64[] x = f64[].filled(n, 0.0);
+  for (i32 i = n - 1; i >= 0; i--) {
+    f64 s = y[i];
+    for (i32 k = i + 1; k < n; k++) { s -= l[k][i] * x[k]; }
+    x[i] = s / l[i][i];
+  }
+  return x;
+}
+
+/** (L·Lᵀ)⁻¹, column by column. */
+f64[][] inverse(f64[][] l) {
+  i32 n = l.len();
+  f64[][] out = f64[][].defaulted(n);
+  for (i32 i = 0; i < n; i++) { out[i] = f64[].filled(n, 0.0); }
+  for (i32 c = 0; c < n; c++) {
+    f64[] e = f64[].filled(n, 0.0);
+    e[c] = 1.0;
+    f64[] x = solve(l, e);
+    for (i32 r = 0; r < n; r++) { out[r][c] = x[r]; }
+  }
+  return out;
+}
+
+/** The indices of `keys` in ascending order of key, ties in their original order. */
+export i32[] sortedOrder(f64[] keys) {
+  i32 n = keys.len();
+  i32[] a = identity(n);
+  i32[] b = i32[].filled(n, 0);
+  for (i32 width = 1; width < n; width *= 2) {
+    for (i32 lo = 0; lo < n; lo += 2 * width) {
+      i32 mid = lo + width < n ? lo + width : n;
+      i32 hi = lo + 2 * width < n ? lo + 2 * width : n;
+      i32 i = lo;
+      i32 j = mid;
+      for (i32 k = lo; k < hi; k++) {
+        if (i < mid && (j >= hi || keys[a[i]] <= keys[a[j]])) {
+          b[k] = a[i];
+          i++;
+        } else {
+          b[k] = a[j];
+          j++;
+        }
+      }
+    }
+    i32[] t = a;
+    a = b;
+    b = t;
+  }
+  return a;
+}
+
+/** 0, 1, …, n - 1. */
+export i32[] identity(i32 n) {
+  i32[] a = i32[].filled(n, 0);
+  for (i32 i = 0; i < n; i++) { a[i] = i; }
+  return a;
+}
