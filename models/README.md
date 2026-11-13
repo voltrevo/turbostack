@@ -6,3 +6,5 @@
   `ValueNet` with `ValueConfig.standard()` (`src/value.wac`). Replaced as training finds better ones.
 - `self-taught-dual.weights` — the `dual` network (`ValueConfig.dual()`): the greedy value and the value of play with
   lookahead, for `tools/evaluate.wac dual … 3`. Run v10 iteration 36, learned from v6 by self-play.
+- `v5/model-<i>.weights` — checkpoints from run v5, the run that learned from nothing (`docs/bootstrapping.md`), at
+  the iterations its tables cite: `standard` networks, for `tools/evaluate.wac standard models/v5/model-32.weights …`.

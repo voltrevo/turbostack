@@ -1,0 +1,11 @@
+iteration 1, bonus 40: fit: 6000 boards, training error 131, held-out error 132 (64 s)
+iteration 2, bonus 38: fit: 12000 boards, training error 131, held-out error 131 (70 s); games 1001-1020: mean 96 ± 13.424251424783039 (standard error), standard deviation 60.035077465726566, 20 games
+iteration 3, bonus 37: fit: 18000 boards, training error 138, held-out error 136 (81 s)
+iteration 4, bonus 36: fit: 18000 boards, training error 143, held-out error 141 (80 s); games 1001-1020: mean 227 ± 21.583375668860466 (standard error), standard deviation 96.52379035897398, 20 games
+iteration 5, bonus 34: fit: 18000 boards, training error 152, held-out error 153 (86 s)
+iteration 6, bonus 33: fit: 18000 boards, training error 156, held-out error 157 (83 s); games 1001-1020: mean 212 ± 38.04152855415831 (standard error), standard deviation 170.12688763019455, 20 games
+iteration 7, bonus 32: fit: 18000 boards, training error 167, held-out error 166 (83 s)
+iteration 8, bonus 30: fit: 18000 boards, training error 169, held-out error 169 (80 s); games 1001-1020: mean 139 ± 22.40653100278906 (standard error), standard deviation 100.20505292438574, 20 games
+iteration 9, bonus 29: fit: 18000 boards, training error 171, held-out error 175 (85 s)
+iteration 10, bonus 28: fit: 18000 boards, training error 174, held-out error 180 (99 s); games 1001-1020: mean 227 ± 22.537687734571456 (standard error), standard deviation 100.79160366033003, 20 games
+iteration 11, bonus 26: fit: 18000 boards, training error 168, held-out error 168 (88 s)

@@ -1,0 +1,4 @@
+iteration 1: fit: 6000 boards, training error 17, held-out error 18 (61 s)
+iteration 2: fit: 12000 boards, training error 21, held-out error 21 (63 s); games 1001-1020: mean 92 ± 17.495864172937978 (standard error), standard deviation 78.24388323158492, 20 games
+iteration 3: fit: 18000 boards, training error 26, held-out error 26 (67 s)
+iteration 4: fit: 18000 boards, training error 31, held-out error 30 (68 s); games 1001-1020: mean 130 ± 33.67022736077551 (standard error), standard deviation 150.57783439313476, 20 games
