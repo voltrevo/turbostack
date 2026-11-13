@@ -36,7 +36,7 @@ export struct ValueConfig {
   ValueConfig named(string name) {
     if (name == "small") { return ValueConfig.small(); }
     if (name == "large") { return ValueConfig.large(); }
-    if (name == "dual" || name == "dual1") { return ValueConfig.dual(); }
+    if (name == "dual" || name == "dual0" || name == "dual1") { return ValueConfig.dual(); }
     return ValueConfig.standard();
   }
 }

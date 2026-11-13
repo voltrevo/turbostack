@@ -104,6 +104,15 @@ With lookahead (3 candidates), paired game by game:
 v10 iteration 36 (`models/self-taught-dual.weights`, `tools/evaluate.wac dual … 3`) finishes 170 of the 200 games
 (85%) and makes 22.1 tetrises a game; turbostack's model with lookahead finishes 86% and makes 20.8.
 
+**The second output itself is worth about 700 points.** The comparison with v6 above mixes two things: a value
+trained for lookahead, and 36 more iterations of training on lookahead games. Separating them: the same network
+(v10 iteration 36), the same games and the same three candidates, valuing the boards a piece deeper by the first,
+greedy output instead of the second (`tools/evaluate.wac dual0 … 3`; `docs/runs/one-piece-greedy-leaves-1-200.txt`).
+Over games 1–200 that player scores 27,908 and finishes 162 of 200 games, with 21.5 tetrises a game. The second
+output scores **+682 ± 240** more (28,590), higher in 92 games and lower in 52, and finishes 170 with 22.1 tetrises.
+So of the +1,987 over v6, about a third is the second output, and the rest is what training on lookahead games did
+to the network as a whole.
+
 Checks on games 1001–1050 alone ran from +858 to +2,850 against v6 and flattered whichever checkpoint was picked by
 them: iteration 24, +2,596 there, was +643 on games 1–200.
 

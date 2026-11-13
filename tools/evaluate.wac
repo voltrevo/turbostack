@@ -7,7 +7,7 @@
 // placement that leaves the stack needing one particular piece is then seen to be the gamble it is.
 //
 // `dual` is the network with a second, lookahead value: greedy, it plays by the first; with lookahead, it chooses
-// candidates by the first and values the boards a piece deeper by the second. `dual1` plays by the second throughout.
+// candidates by the first and values the boards a piece deeper by the second. `dual1` plays by the second throughout; `dual0` by the first throughout, lookahead included.
 // For `dual`, lookahead `k:k2` looks two pieces ahead (`deepLook`): its k best placements, each valued by the one-piece
 // player with k2 candidates for every piece that could come next.
 //
@@ -62,7 +62,7 @@ export async i32 main(Sys sys) {
       return 1;
     }
     i32 first = args[0] == "dual1" ? 1 : 0;
-    i32 second = net.config.heads > 1 ? 1 : 0;
+    i32 second = net.config.heads > 1 && args[0] != "dual0" ? 1 : 0;
     finalScore = (Board[] bs) => finalScoresOf(d, net, bs, first);
     deeper = (Board[] bs) => finalScoresOf(d, net, bs, second);
     deep = (Board[] bs) => deepLook(d, net, bs, look, look2);
