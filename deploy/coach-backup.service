@@ -1,0 +1,9 @@
+# A copy of the coach's data, kept 14 days: what a deleted player's moves outlive by at most that long, as the about
+# page says. Run daily by coach-backup.timer.
+[Unit]
+Description=Back up the coach's data
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/bin/sh -c 'mkdir -p /var/backups/coach && tar -czf /var/backups/coach/coach-$(date +%%F).tar.gz -C /var/lib coach && find /var/backups/coach -name "coach-*.tar.gz" -mtime +13 -delete'

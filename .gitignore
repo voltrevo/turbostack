@@ -1,3 +1,4 @@
 dist/
 runs/
 web/dualweights.wac
+server/data/

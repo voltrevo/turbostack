@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "wac": { "git": "https://git.voltrevo.com/wac.git", "ref": "3e430f338603ae64fa2107fa3f1e43af876eb821", "commit": "3e430f338603ae64fa2107fa3f1e43af876eb821" }
+  }
+}

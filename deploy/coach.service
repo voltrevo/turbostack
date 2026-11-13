@@ -1,0 +1,32 @@
+# The coach's server, run by systemd from the current release (deploy/deploy.sh puts it in /opt/coach/current).
+# Its data is /var/lib/coach, which only it can read; Caddy in front of it is the only way in.
+[Unit]
+Description=turbostack coach server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=coach
+Group=coach
+WorkingDirectory=/opt/coach/current
+Environment=PORT=8080 BIND=127.0.0.1 DATA_DIR=/var/lib/coach
+# ORIGIN, and any limits changed from the server's defaults (server/coach.wac).
+EnvironmentFile=/etc/coach/coach.env
+ExecStart=/usr/bin/node bin/wac app-run ./coach-server coach.html about.html
+Restart=on-failure
+RestartSec=2
+StateDirectory=coach
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+# The coach's site: TLS (Caddy gets and renews the certificate itself), compression, and everything passed to the
+# server on loopback. No access log is written — Caddy keeps none unless asked — so no visitor's address is kept.
+# deploy/setup.sh writes this to /etc/caddy/Caddyfile with the domain in place of COACH_DOMAIN.
+COACH_DOMAIN {
+	encode zstd gzip
+	request_body {
+		max_size 64KB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy 127.0.0.1:8080
+}

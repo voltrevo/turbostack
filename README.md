@@ -8,7 +8,9 @@ model that learned to play it from nothing.
 
 **Play it yourself:** the coach (`web/coach.wac`, `coach.html` on the same site) judges every move you make with the
 self-taught model looking one piece ahead — where it ranks, the points it expects it to cost, and the move it would have
-made — and keeps your moves in the browser for exporting.
+made — and keeps your moves in the browser for exporting. Served by its own server (`server/coach.wac`), a player can
+choose to share their moves to help train it: off by default, with no accounts, under a random data code with which
+they can download or delete them. `deploy/README.md` says how it is hosted.
 
 ## The game
 

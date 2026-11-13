@@ -1,0 +1,695 @@
+// The coach's server: it serves the coach page and, for players who choose to share them, keeps the moves they play,
+// for fitting models of how people play.
+//
+//     wac run --allow-read --allow-write --allow-net --allow-env server/coach.wac <coach.html> [about.html]
+//
+// Configured by the environment (`deploy/README.md` says how it runs in production, behind Caddy):
+//
+// - `PORT` (8080) and `BIND` (127.0.0.1): where it listens. Behind a reverse proxy it listens on loopback only.
+// - `DATA_DIR` (`data`): where shared moves are kept.
+// - `ORIGIN`, such as `https://coach.example.org`: the site's own origin. When set, a POST whose `Origin` is anything
+//   else is refused.
+// - `RETENTION_DAYS` (365): how long a game is kept, from when it started.
+// - `MAX_TOTAL_MB` (10240) and `MAX_PLAYER_MB` (20): how much it keeps in all and for one player.
+//
+// **Nothing is kept unless the player chooses to share.** Sharing is off by default; a player who turns it on gets a
+// random 128-bit ID in a cookie (`coach_id`: HttpOnly, Secure, SameSite=Strict), shown to them as their **data code**,
+// with which they can download or delete what is kept from any browser. There are no accounts, names or emails: the ID
+// is all the server knows of a player. It is pseudonymous, not anonymous — the moves of one code are linked — so the
+// page and the about page say so.
+//
+// **On disk** each player's games are `DATA_DIR/players/<h>/<start>-<seed>.jsonl`, where `h` is a hash of the code, not
+// the code: what is on the disk or in a backup does not let anyone read a player's data back through the server. A
+// line is `{"at": <server time>, "move": <the move as the page sent it>}`, and a move number is kept once per game.
+//
+// **Every state-changing request is a POST with an `x-coach: 1` header**, which a page on another site cannot send
+// without a CORS preflight this server never grants; with `ORIGIN` set, the `Origin` header must match too. Cookies are
+// SameSite=Strict besides.
+//
+// **Limits**: a request must arrive within 10 s and is at most 16 KB (a move 8 KB); 256 connections at once; moves at
+// 2 a second (a burst of 20) and 5,000 a day for one player, and requests at 5 a second (a burst of 50) from one
+// address; and the storage limits above. Games older than `RETENTION_DAYS` are deleted once a day. Its log says what
+// was asked and how it was answered, never a code, an address or a body.
+//
+// One small HTTP/1.1 reader is here rather than imported, because wac's `http` package exports its client and not its
+// server half; it reads one request a connection and answers `Connection: close`, which is all the proxy in front
+// needs.
+
+import { Sys, Socket, TimedOut } from "std";
+import { Result, Vec, Map, hashString, stringEq } from "core";
+import { crypto.sha256 } from "wac";
+import { json.parse, json.JsonValue } from "wac";
+
+/** The largest request taken, head and body, and the largest move. */
+static i32 MAX_REQUEST = 16384;
+static i32 MAX_MOVE = 8192;
+/** How long a client has to send its request, and how many are served at once. */
+static i32 REQUEST_MS = 10000;
+static i32 MAX_CONNECTIONS = 256;
+/** How long the cookie lasts: a year, renewed whenever the player shares a move. */
+static i64 ID_SECONDS = 365 as i64 * 24 as i64 * 3600 as i64;
+static i64 DAY_MS = 24 as i64 * 3600 as i64 * 1000 as i64;
+/** Moves a player may share: per second, in a burst, and in a day. */
+static f64 MOVE_RATE = 2.0;
+static f64 MOVE_BURST = 20.0;
+static i32 MOVES_A_DAY = 5000;
+/** Requests from one address: per second, and in a burst. */
+static f64 ADDRESS_RATE = 5.0;
+static f64 ADDRESS_BURST = 50.0;
+/** The earliest game start taken, 2026-01-01, so a move cannot name a game from any time it likes. */
+static i64 EARLIEST_START = 1767225600000 as i64;
+
+/** What the server was configured with, and what it remembers between requests. */
+struct Config {
+  string dataDir;
+  string origin;
+  i64 retentionMs;
+  i64 maxTotal;
+  i64 maxPlayer;
+  u8[] page;
+  u8[] about;
+  /** Bytes kept in all, and for each player directory read so far. */
+  i64[] total;
+  Map<string, i64> used;
+  /** The game files read since the server started, and `<game file>#<move>` for every move kept in them. */
+  Map<string, bool> loaded;
+  Map<string, bool> kept;
+  /** Token buckets: tokens and when they were last filled, per player and per address. */
+  Map<string, f64> tokens;
+  Map<string, i64> filled;
+  /** Moves each player has shared on the day `day` is. */
+  Map<string, i32> today;
+  i64[] day;
+  /** When retention last ran, and the number of connections open. */
+  i64[] swept;
+  i32[] open;
+}
+
+/** A request, as far as this server reads one. */
+struct Request {
+  string method;
+  string path;
+  /** Header lines with lower-cased names: `name: value`. */
+  string[] headers;
+  u8[] body;
+  /** The address it came from: the proxy's word for it when it came through the proxy on this machine. */
+  string address;
+}
+
+struct Response {
+  i32 status;
+  string contentType;
+  u8[] body;
+  string[] headers;
+}
+
+// ── Text and bytes ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+bool startsWith(string s, string p) { return s.len() >= p.len() && s.slice(0, p.len()) == p; }
+
+string lower(string s) {
+  u8[] b = s.toBytes();
+  for (i32 i = 0; i < b.len(); i++) { if (b[i] >= 65 && b[i] <= 90) { b[i] = b[i] + 32; } }
+  return string.fromBytes(b);
+}
+
+string trim(string s) {
+  i32 a = 0;
+  i32 b = s.len();
+  u8[] c = s.toBytes();
+  while (a < b && (c[a] == 32 || c[a] == 9)) { a++; }
+  while (b > a && (c[b - 1] == 32 || c[b - 1] == 9 || c[b - 1] == 13)) { b--; }
+  return s.slice(a, b);
+}
+
+/** `s` with every line break made a space, so one move stays one line. */
+string withoutNewlines(string s) {
+  u8[] b = s.toBytes();
+  for (i32 i = 0; i < b.len(); i++) { if (b[i] == 10 || b[i] == 13) { b[i] = 32 as u8; } }
+  return string.fromBytes(b);
+}
+
+u8[] concat(u8[] a, u8[] b) {
+  u8[] out = u8[].filled(a.len() + b.len(), 0 as u8);
+  out.copyFrom(a, 0, 0, a.len());
+  out.copyFrom(b, 0, a.len(), b.len());
+  return out;
+}
+
+i32 find(u8[] hay, u8[] needle) {
+  for (i32 i = 0; i + needle.len() <= hay.len(); i++) {
+    bool hit = true;
+    for (i32 k = 0; k < needle.len(); k++) { if (hay[i + k] != needle[k]) { hit = false; break; } }
+    if (hit) { return i; }
+  }
+  return -1;
+}
+
+u8[] part(u8[] b, i32 from, i32 to) {
+  u8[] out = u8[].filled(to - from, 0 as u8);
+  out.copyFrom(b, from, 0, to - from);
+  return out;
+}
+
+string hex(u8[] b) {
+  string digits = "0123456789abcdef";
+  string out = "";
+  for (i32 i = 0; i < b.len(); i++) {
+    i32 x = b[i] as i32;
+    out += digits.slice(x >> 4, (x >> 4) + 1) + digits.slice(x & 15, (x & 15) + 1);
+  }
+  return out;
+}
+
+/** A whole decimal, or -1 when it is empty, too long or not one. */
+i64 parseWhole(string s) {
+  u8[] b = s.toBytes();
+  if (b.len() == 0 || b.len() > 15) { return 0 as i64 - 1 as i64; }
+  i64 v = 0 as i64;
+  for (i32 i = 0; i < b.len(); i++) {
+    if (b[i] < 48 || b[i] > 57) { return 0 as i64 - 1 as i64; }
+    v = v * (10 as i64) + ((b[i] as i64) - (48 as i64));
+  }
+  return v;
+}
+
+/** A whole JSON number, or -1 when it is missing, negative or not whole. */
+i64 wholeOf(JsonValue? v) {
+  f64 x = v?.number() ?? -1.0;
+  if (!(x >= 0.0) || x != x.floor() || x > 9.0e15) { return 0 as i64 - 1 as i64; }
+  return x as~ i64;
+}
+
+/** A file's lines, without empty ones; none when it cannot be read. */
+async string[] lines(Sys sys, string path) {
+  Vec<string> out = Vec.create();
+  auto had = await sys.files().readFile(path);
+  if (had.isErr()) { return out.toArray(); }
+  string rest = string.fromBytes(had.ok()!);
+  while (rest.len() > 0) {
+    i32 nl = rest.indexOf("\n");
+    string line = nl < 0 ? rest : rest.slice(0, nl);
+    rest = nl < 0 ? "" : rest.slice(nl + 1, rest.len());
+    if (line.len() > 0) { out.push(line); }
+  }
+  return out.toArray();
+}
+
+// ── Codes ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** The 32 hex digits of a code as given, without its dashes, spaces or capitals; "" when it is not one. */
+string normalCode(string s) {
+  u8[] b = lower(s).toBytes();
+  string out = "";
+  for (i32 i = 0; i < b.len(); i++) {
+    i32 x = b[i] as i32;
+    if (x == 45 || x == 32) { continue; }
+    if (!((x >= 48 && x <= 57) || (x >= 97 && x <= 102))) { return ""; }
+    out += string.fromBytes([b[i]]);
+  }
+  return out.len() == 32 ? out : "";
+}
+
+/** A code as the player sees it: eight groups of four. */
+string shownCode(string id) {
+  string out = "";
+  for (i32 i = 0; i < 32; i += 4) { out += (i > 0 ? "-" : "") + id.slice(i, i + 4); }
+  return out;
+}
+
+/** Where a code's games are kept: named by a hash of it, so the disk does not hold the code itself. */
+string playerDir(Config c, string id) {
+  return c.dataDir + "/players/" + hex(sha256(("turbostack coach " + id).toBytes())).slice(0, 32);
+}
+
+async string newId(Sys sys) { return hex((await sys.random().bytes(16)).unwrap()); }
+
+string header(Request r, string name) {
+  string want = name + ":";
+  for (string h in r.headers) { if (startsWith(h, want)) { return trim(h.slice(want.len(), h.len())); } }
+  return "";
+}
+
+/** This browser's code from its cookie, or "". */
+string cookieId(Request r) {
+  string rest = header(r, "cookie");
+  while (rest.len() > 0) {
+    i32 semi = rest.indexOf(";");
+    string pair = trim(semi < 0 ? rest : rest.slice(0, semi));
+    rest = semi < 0 ? "" : rest.slice(semi + 1, rest.len());
+    if (startsWith(pair, "coach_id=")) { return normalCode(pair.slice(9, pair.len())); }
+  }
+  return "";
+}
+
+string setId(string id, i64 maxAge) {
+  return "Set-Cookie: coach_id=\{id}; Path=/; Max-Age=\{maxAge}; HttpOnly; Secure; SameSite=Strict";
+}
+
+/** The code a request names in its body (`{"code": …}`), else this browser's; "" when neither is one. */
+string requestedId(Request r) {
+  if (r.body.len() > 0) {
+    auto parsed = parse(r.body);
+    if (parsed.isOk()) {
+      string given = parsed.ok()!.member("code")?.text() ?? "";
+      if (given.len() > 0) { return normalCode(given); }
+    }
+  }
+  return cookieId(r);
+}
+
+// ── Limits ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Takes a token from `key`'s bucket, which fills at `rate` a second up to `burst`: whether there was one to take. */
+bool take(Config c, string key, f64 rate, f64 burst, i64 now) {
+  // The buckets are forgotten now and then, which only ever lets someone through sooner.
+  if (c.tokens.len() > 200000) {
+    c.tokens.clear();
+    c.filled.clear();
+  }
+  f64 t = c.tokens.getOr(key, burst);
+  i64 last = c.filled.getOr(key, now);
+  t = t + ((now - last) as~ f64) / 1000.0 * rate;
+  if (t > burst) { t = burst; }
+  c.filled.set(key, now);
+  if (t < 1.0) {
+    c.tokens.set(key, t);
+    return false;
+  }
+  c.tokens.set(key, t - 1.0);
+  return true;
+}
+
+/** Bytes kept under a player directory, read once and then kept up to date. */
+async i64 usedBy(Sys sys, Config c, string dir) {
+  if (c.used.has(dir)) { return c.used.getOr(dir, 0 as i64); }
+  i64 n = await sizeOf(sys, dir);
+  c.used.set(dir, n);
+  return n;
+}
+
+async i64 sizeOf(Sys sys, string dir) {
+  i64 n = 0 as i64;
+  auto names = await sys.files().readDir(dir);
+  if (names.isErr()) { return n; }
+  for (string name in names.ok()!) {
+    auto st = await sys.files().stat(dir + "/" + name);
+    if (st.isOk() && st.ok()!.isFile) { n += st.ok()!.size; }
+  }
+  return n;
+}
+
+/** Deletes every game that started more than `retentionMs` ago, and the directories that leaves empty. */
+async void sweep(Sys sys, Config c, i64 now) {
+  c.swept[0] = now;
+  string root = c.dataDir + "/players";
+  auto dirs = await sys.files().readDir(root);
+  if (dirs.isErr()) { return; }
+  i32 removed = 0;
+  for (string d in dirs.ok()!) {
+    auto names = await sys.files().readDir(root + "/" + d);
+    if (names.isErr()) { continue; }
+    i32 left = 0;
+    for (string name in names.ok()!) {
+      i32 dash = name.indexOf("-");
+      i64 start = dash > 0 ? parseWhole(name.slice(0, dash)) : 0 as i64 - 1 as i64;
+      if (start >= 0 as i64 && start + c.retentionMs < now) {
+        await sys.files().remove(root + "/" + d + "/" + name, false);
+        removed++;
+      } else {
+        left++;
+      }
+    }
+    if (left == 0) { await sys.files().remove(root + "/" + d, true); }
+  }
+  if (removed > 0) {
+    // What is remembered of sizes and moves kept is read again from what is left.
+    c.used.clear();
+    c.loaded.clear();
+    c.kept.clear();
+    c.total[0] = await totalSize(sys, c);
+  }
+  sys.stderr().write("retention: \{removed} games past \{c.retentionMs / DAY_MS} days deleted\n".toBytes());
+}
+
+async i64 totalSize(Sys sys, Config c) {
+  i64 n = 0 as i64;
+  auto dirs = await sys.files().readDir(c.dataDir + "/players");
+  if (dirs.isErr()) { return n; }
+  for (string d in dirs.ok()!) { n += await sizeOf(sys, c.dataDir + "/players/" + d); }
+  return n;
+}
+
+// ── Responses ──────────────────────────────────────────────────────────────────────────────────────────────────────
+
+Response text(i32 status, string body) { return Response(status, "text/plain; charset=utf-8", body.toBytes(), string[]()); }
+
+Response jsonResponse(i32 status, string body, string[] headers) {
+  return Response(status, "application/json", body.toBytes(), headers);
+}
+
+Response empty(string[] headers) { return Response(204, "text/plain; charset=utf-8", u8[](), headers); }
+
+string reason(i32 status) {
+  if (status == 200) { return "OK"; }
+  if (status == 204) { return "No Content"; }
+  if (status == 400) { return "Bad Request"; }
+  if (status == 403) { return "Forbidden"; }
+  if (status == 404) { return "Not Found"; }
+  if (status == 405) { return "Method Not Allowed"; }
+  if (status == 408) { return "Request Timeout"; }
+  if (status == 413) { return "Content Too Large"; }
+  if (status == 429) { return "Too Many Requests"; }
+  if (status == 500) { return "Internal Server Error"; }
+  if (status == 503) { return "Service Unavailable"; }
+  return "Error";
+}
+
+u8[] written(Response r) {
+  string head = "HTTP/1.1 \{r.status} \{reason(r.status)}\r\n"
+              + "Content-Type: \{r.contentType}\r\n"
+              + "Content-Length: \{r.body.len()}\r\n"
+              + "Cache-Control: no-store\r\n"
+              + "X-Content-Type-Options: nosniff\r\n"
+              + "Referrer-Policy: no-referrer\r\n"
+              + "X-Frame-Options: DENY\r\n"
+              + "Connection: close\r\n";
+  for (string h in r.headers) { head += h + "\r\n"; }
+  return concat((head + "\r\n").toBytes(), r.body);
+}
+
+// ── Moves ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+async Response move(Sys sys, Config c, Request r, i64 now) {
+  string id = cookieId(r);
+  if (id.len() == 0) { return text(403, "This browser is not sharing its moves."); }
+  if (r.body.len() > MAX_MOVE) { return text(413, "A move is at most \{MAX_MOVE} bytes."); }
+  if (!take(c, "move " + id, MOVE_RATE, MOVE_BURST, now)) { return text(429, "Moves are arriving too fast."); }
+  i64 day = now / DAY_MS;
+  if (day != c.day[0]) {
+    c.day[0] = day;
+    c.today.clear();
+  }
+  i32 sharedToday = c.today.getOr(id, 0);
+  if (sharedToday >= MOVES_A_DAY) { return text(429, "That is all the moves one player can share in a day."); }
+  auto parsed = parse(r.body);
+  if (parsed.isErr() || parsed.ok()!.object() is null) { return text(400, "A move is one JSON object."); }
+  JsonValue mv = parsed.ok()!;
+  i64 start = wholeOf(mv.member("start"));
+  i64 seed = wholeOf(mv.member("seed"));
+  i64 number = wholeOf(mv.member("move"));
+  if (start < EARLIEST_START || start > now + DAY_MS || seed < 0 as i64 || number < 1 as i64) {
+    return text(400, "A move names its game's start and seed, and its number.");
+  }
+  string dir = playerDir(c, id);
+  string game = dir + "/\{start}-\{seed}.jsonl";
+  if (!c.loaded.has(game)) {
+    // The first move of this game the server has seen since it started: what the file already holds is kept.
+    string[] had = await lines(sys, game);
+    for (string line in had) {
+      auto row = parse(line.toBytes());
+      if (row.isOk()) { c.kept.set(game + "#\{wholeOf(row.ok()!.member("move")?.member("move"))}", true); }
+    }
+    c.loaded.set(game, true);
+  }
+  // Checked and marked with no wait between, so the same move sent twice at once is still written once; the mark is
+  // taken back if the move is then not kept.
+  string key = game + "#\{number}";
+  if (c.kept.has(key)) { return empty(string[]()); }
+  c.kept.set(key, true);
+  string line = "{\"at\":\{now},\"move\":" + withoutNewlines(string.fromBytes(r.body)) + "}\n";
+  i64 size = line.toBytes().len() as i64;
+  i64 used = await usedBy(sys, c, dir);
+  if (used + size > c.maxPlayer || c.total[0] + size > c.maxTotal) {
+    c.kept.remove(key);
+    return text(503, used + size > c.maxPlayer ? "This code has shared all the moves the server keeps for one player." : "The server is full.");
+  }
+  await sys.files().mkdir(dir, true);
+  auto out = await sys.files().openAppend(game);
+  if (out.isErr()) {
+    c.kept.remove(key);
+    return text(500, "The move could not be kept.");
+  }
+  out.ok()!.write(line.toBytes());
+  out.ok()!.close();
+  c.used.set(dir, used + size);
+  c.total[0] = c.total[0] + size;
+  c.today.set(id, sharedToday + 1);
+  // Sharing renews the cookie, so a player who keeps playing keeps their code.
+  return empty([setId(id, ID_SECONDS)]);
+}
+
+// ── A player's data ───────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Everything kept under `id`, as the lines it is kept as, oldest game first. */
+async string[] gather(Sys sys, Config c, string id) {
+  Vec<string> out = Vec.create();
+  string dir = playerDir(c, id);
+  auto names = await sys.files().readDir(dir);
+  if (names.isErr()) { return out.toArray(); }
+  string[] sorted = names.ok()!;
+  // By name, which starts with the game's start time: insertion sort, since arrays have none of their own.
+  for (i32 i = 1; i < sorted.len(); i++) {
+    string x = sorted[i];
+    i32 j = i - 1;
+    while (j >= 0 && sorted[j] > x) {
+      sorted[j + 1] = sorted[j];
+      j--;
+    }
+    sorted[j + 1] = x;
+  }
+  for (string name in sorted) {
+    string[] rows = await lines(sys, dir + "/" + name);
+    for (string row in rows) { out.push(row); }
+  }
+  return out.toArray();
+}
+
+async Response myData(Sys sys, Config c, Request r) {
+  string id = requestedId(r);
+  if (id.len() == 0) { return text(404, "Nothing is kept for this browser."); }
+  string[] rows = await gather(sys, c, id);
+  if (rows.len() == 0) { return text(404, "Nothing is kept under this code."); }
+  string body = "";
+  for (string row in rows) { body += row + "\n"; }
+  return Response(200, "application/x-ndjson", body.toBytes(), string[]());
+}
+
+async Response deleteMyData(Sys sys, Config c, Request r) {
+  string id = requestedId(r);
+  // Deleting with this browser's own code stops it sharing too; deleting another code's data leaves this browser be.
+  string[] cookies = id.len() > 0 && id == cookieId(r) ? [setId("", 0 as i64)] : string[]();
+  if (id.len() == 0) { return jsonResponse(200, "{\"deleted\":0}", cookies); }
+  string dir = playerDir(c, id);
+  auto names = await sys.files().readDir(dir);
+  i32 files = names.isOk() ? names.ok()!.len() : 0;
+  i64 size = await sizeOf(sys, dir);
+  await sys.files().remove(dir, true);
+  c.used.remove(dir);
+  c.total[0] = c.total[0] - size;
+  // What is remembered of moves kept is read again from what is left.
+  c.loaded.clear();
+  c.kept.clear();
+  sys.stderr().write("deleted a player's data: \{files} games\n".toBytes());
+  return jsonResponse(200, "{\"deleted\":\{files}}", cookies);
+}
+
+// ── Routes ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Whether a POST came from this site's own page: its `x-coach` header, and its `Origin` when the server knows its own. */
+bool fromPage(Config c, Request r) {
+  if (header(r, "x-coach") != "1") { return false; }
+  string origin = header(r, "origin");
+  if (c.origin.len() > 0 && origin.len() > 0 && origin != c.origin) { return false; }
+  string site = header(r, "sec-fetch-site");
+  return site.len() == 0 || site == "same-origin";
+}
+
+async Response handle(Sys sys, Config c, Request r) {
+  i64 now = (await sys.clock().nowMillis()).unwrap();
+  if (now - c.swept[0] > DAY_MS) { await sweep(sys, c, now); }
+  if (r.method == "GET" || r.method == "HEAD") {
+    if (r.path == "/" || r.path == "/coach.html") { return Response(200, "text/html; charset=utf-8", c.page, string[]()); }
+    if ((r.path == "/about" || r.path == "/about.html") && c.about.len() > 0) {
+      return Response(200, "text/html; charset=utf-8", c.about, string[]());
+    }
+    if (r.path == "/health") { return jsonResponse(200, "{\"ok\":true}", string[]()); }
+    if (r.path == "/api/me") {
+      string id = cookieId(r);
+      return jsonResponse(200, id.len() > 0 ? "{\"sharing\":true,\"code\":\"\{shownCode(id)}\"}" : "{\"sharing\":false,\"code\":null}",
+                          string[]());
+    }
+    return text(404, "Not found.");
+  }
+  if (r.method != "POST") { return text(405, "GET or POST."); }
+  if (!startsWith(r.path, "/api/")) { return text(404, "Not found."); }
+  if (!fromPage(c, r)) { return text(403, "Only the coach page may ask that."); }
+  if (!take(c, "address " + r.address, ADDRESS_RATE, ADDRESS_BURST, now)) { return text(429, "Too many requests."); }
+  if (r.path == "/api/move") { return await move(sys, c, r, now); }
+  if (r.path == "/api/share") {
+    string id = cookieId(r);
+    if (id.len() == 0) { id = await newId(sys); }
+    return jsonResponse(200, "{\"code\":\"\{shownCode(id)}\"}", [setId(id, ID_SECONDS)]);
+  }
+  if (r.path == "/api/unshare") { return empty([setId("", 0 as i64)]); }
+  if (r.path == "/api/code") {
+    auto parsed = parse(r.body);
+    string id = parsed.isOk() ? normalCode(parsed.ok()!.member("code")?.text() ?? "") : "";
+    if (id.len() == 0) { return text(400, "A data code is 32 hexadecimal digits."); }
+    return jsonResponse(200, "{\"code\":\"\{shownCode(id)}\"}", [setId(id, ID_SECONDS)]);
+  }
+  if (r.path == "/api/my-data") { return await myData(sys, c, r); }
+  if (r.path == "/api/delete-my-data") { return await deleteMyData(sys, c, r); }
+  return text(404, "Not found.");
+}
+
+// ── HTTP ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** One request off `sock` by `deadline`, or a status to refuse it with: 408 late, 413 too large, 400 not HTTP. */
+async Result<Request, i32> readRequest(Sys sys, Socket sock, i64 deadline) {
+  u8[] got = u8[]();
+  i32 end = -1;
+  i32 length = 0;
+  Vec<string> headers = Vec.create();
+  string first = "";
+  while (true) {
+    if (end < 0) {
+      end = find(got, "\r\n\r\n".toBytes());
+      if (end >= 0) {
+        string rest = string.fromBytes(part(got, 0, end));
+        i32 nl = rest.indexOf("\r\n");
+        first = nl < 0 ? rest : rest.slice(0, nl);
+        rest = nl < 0 ? "" : rest.slice(nl + 2, rest.len());
+        while (rest.len() > 0) {
+          i32 at = rest.indexOf("\r\n");
+          string l = at < 0 ? rest : rest.slice(0, at);
+          rest = at < 0 ? "" : rest.slice(at + 2, rest.len());
+          i32 colon = l.indexOf(":");
+          if (colon <= 0) { return Result.Err(400); }
+          string name = lower(trim(l.slice(0, colon)));
+          string value = trim(l.slice(colon + 1, l.len()));
+          // A body this reader would have to guess the length of is refused rather than guessed.
+          if (name == "transfer-encoding") { return Result.Err(400); }
+          if (name == "content-length") {
+            i64 n = parseWhole(value);
+            if (n < 0 as i64) { return Result.Err(400); }
+            if (n > MAX_REQUEST as i64) { return Result.Err(413); }
+            length = n as~ i32;
+          }
+          headers.push(name + ": " + value);
+        }
+      }
+    }
+    if (end >= 0 && got.len() >= end + 4 + length) { break; }
+    if (got.len() > MAX_REQUEST) { return Result.Err(413); }
+    i64 now = (await sys.clock().nowMillis()).unwrap();
+    if (now >= deadline) { return Result.Err(408); }
+    auto r = await sys.clock().within(sock.recv(), (deadline - now) as~ i32);
+    if (r.isErr()) { return Result.Err(r.err()! is TimedOut ? 408 : 400); }
+    match (r.ok()!) {
+      Data(bytes): { got = concat(got, bytes); }
+      default: { return Result.Err(400); }
+    }
+  }
+  i32 s1 = first.indexOf(" ");
+  if (s1 <= 0) { return Result.Err(400); }
+  string after = first.slice(s1 + 1, first.len());
+  i32 s2 = after.indexOf(" ");
+  string target = s2 < 0 ? after : after.slice(0, s2);
+  i32 q = target.indexOf("?");
+  Request req = Request(first.slice(0, s1), q < 0 ? target : target.slice(0, q), headers.toArray(),
+                        part(got, end + 4, end + 4 + length), sock.peer);
+  // Through the proxy on this machine, the address is the last one it added to `X-Forwarded-For`, which a client
+  // cannot forge: anything earlier in the list is the client's own say.
+  if (sock.fromLoopback()) {
+    string forwarded = header(req, "x-forwarded-for");
+    string last = forwarded;
+    i32 comma = last.indexOf(",");
+    while (comma >= 0) {
+      last = last.slice(comma + 1, last.len());
+      comma = last.indexOf(",");
+    }
+    last = trim(last);
+    if (last.len() > 0) { req.address = last; }
+  }
+  return Result.Ok(req);
+}
+
+async void connection(Sys sys, Config c, Socket sock) {
+  i64 start = (await sys.clock().nowMillis()).unwrap();
+  auto got = await readRequest(sys, sock, start + REQUEST_MS as i64);
+  if (got.isErr()) {
+    await sock.send(written(text(got.err()!, reason(got.err()!) + ".")));
+    sys.stderr().write("\{got.err()!} (unread)\n".toBytes());
+  } else {
+    Request r = got.ok()!;
+    Response res = await handle(sys, c, r);
+    if (r.method == "HEAD") { res.body = u8[](); }
+    await sock.send(written(res));
+    sys.stderr().write("\{res.status} \{r.method} \{r.path}\n".toBytes());
+  }
+  sock.close();
+  c.open[0] = c.open[0] - 1;
+}
+
+async string env(Sys sys, string name, string otherwise) {
+  // An unset variable is `Ok(null)`, which `ok()` cannot tell from an error, so it is matched.
+  match (await sys.env().get(name)) {
+    Ok(v): { return v is null || v!.len() == 0 ? otherwise : string.fromBytes(v!); }
+    Err(e): { return otherwise; }
+  }
+}
+
+export async i32 main(Sys sys) {
+  string[] args = sys.args();
+  if (args.len() < 1 || args.len() > 2) {
+    sys.stderr().write("usage: coach.wac <coach.html> [about.html]\n".toBytes());
+    return 2;
+  }
+  auto page = await sys.files().readFile(args[0]);
+  if (page.isErr()) {
+    sys.stderr().write("coach.wac: cannot read \{args[0]}\n".toBytes());
+    return 1;
+  }
+  u8[] about = args.len() > 1 ? (await sys.files().readFile(args[1])).orElse(u8[]()) : u8[]();
+  i64 port = parseWhole(await env(sys, "PORT", "8080"));
+  i64 days = parseWhole(await env(sys, "RETENTION_DAYS", "365"));
+  i64 totalMb = parseWhole(await env(sys, "MAX_TOTAL_MB", "10240"));
+  i64 playerMb = parseWhole(await env(sys, "MAX_PLAYER_MB", "20"));
+  if (port < 0 as i64 || port > 65535 as i64 || days < 1 as i64 || totalMb < 1 as i64 || playerMb < 1 as i64) {
+    sys.stderr().write("coach.wac: PORT, RETENTION_DAYS, MAX_TOTAL_MB and MAX_PLAYER_MB are whole numbers\n".toBytes());
+    return 2;
+  }
+  string origin = await env(sys, "ORIGIN", "");
+  while (origin.len() > 0 && origin.slice(origin.len() - 1, origin.len()) == "/") { origin = origin.slice(0, origin.len() - 1); }
+  i64 mb = 1048576 as i64;
+  Config c = Config(await env(sys, "DATA_DIR", "data"), origin, days * DAY_MS, totalMb * mb, playerMb * mb, page.ok()!, about,
+                    i64[].filled(1, 0 as i64), Map.create(hashString, stringEq), Map.create(hashString, stringEq),
+                    Map.create(hashString, stringEq), Map.create(hashString, stringEq), Map.create(hashString, stringEq),
+                    Map.create(hashString, stringEq), i64[].filled(1, 0 as i64), i64[].filled(1, 0 as i64), i32[].filled(1, 0));
+  auto made = await sys.files().mkdir(c.dataDir + "/players", true);
+  if (made.isErr()) {
+    sys.stderr().write("coach.wac: cannot make \{c.dataDir}/players\n".toBytes());
+    return 1;
+  }
+  c.total[0] = await totalSize(sys, c);
+  string bind = await env(sys, "BIND", "127.0.0.1");
+  auto bound = await sys.net().listen(bind, port as~ i32);
+  if (bound.isErr()) {
+    sys.stderr().write("coach.wac: cannot listen on \{bind}:\{port}: \{bound.err()!}\n".toBytes());
+    return 1;
+  }
+  sys.stderr().write("coach.wac: listening on \{bind}:\{bound.ok()!.port}, \{c.total[0] / mb} MB kept in \{c.dataDir}\n".toBytes());
+  while (true) {
+    auto took = await bound.ok()!.accept();
+    if (took.isErr()) { continue; }
+    // Refusing at once is kinder than accepting and being slow: the client finds out now.
+    if (c.open[0] >= MAX_CONNECTIONS) {
+      took.ok()!.close();
+      continue;
+    }
+    c.open[0] = c.open[0] + 1;
+    // Not awaited: one slow client need not hold up the next.
+    connection(sys, c, took.ok()!);
+  }
+}
