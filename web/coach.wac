@@ -25,11 +25,16 @@
 // a bell for the model's own move and a droop for a costly one, over a quiet loop. Sound and Music turn them off (M
 // for the music), and the choice is kept with the moves.
 //
-// **Nothing leaves the browser.** The page talks to no server: it shows a start screen saying what the coach is, then
-// the game, and whatever it keeps stays in this browser's storage, where the player can download or delete it. Sharing
-// moves with a server, to help train future models, is planned, but it is not part of this version.
+// **Sharing is opt-in.** Served by the coach's own server, the page asks it `/api/me`; anywhere else — opened from a
+// disk, or on a static site where `/api/*` is not found — there is no answer to believe, and nothing about sharing is
+// shown. With a server, a box beside the data buttons, unticked unless this browser already shares, turns sharing on:
+// the server sets a cookie the page cannot read, and answers the data code it keeps the moves under. From then on each
+// move's line is sent as it is judged, without waiting for the answer, so a slow or failing server never holds up
+// play; moves made before sharing was on are never sent. Download my data then adds the server's copy to the same file,
+// and Delete my data deletes it there too. A data code from another browser can download, delete or adopt what is kept
+// under it. No one signs in: the code is the only key.
 
-import { Page, Element, ElementEvent, Listen, Sound, Voice } from "web";
+import { Page, Element, ElementEvent, Listen, Origin, Sound, Voice } from "web";
 import { Result, Vec } from "core";
 import { Device, loadWeights } from "tensor";
 import { Board, Placement, pieceName, MIN_TOP } from "../src/board.wac";
@@ -93,6 +98,8 @@ struct Move {
    * player model can tell what the interface did from what the player did.
    */
   string how;
+  /** Whether sharing was on when it was made: only those are sent, so turning sharing on never sends what came before. */
+  bool shared;
   bool judged;
   i32 best;
   f64 loss;
@@ -342,6 +349,73 @@ i32 bestOf(f32[] q, f32[] la) {
   return best;
 }
 
+/**
+ * What every POST to the coach's server carries: its bodies are JSON, and `x-coach` is its guard against requests made
+ * from other sites, which a browser does not let set such a header without asking the server first.
+ */
+string[] postHeaders() { return ["content-type: application/json", "x-coach: 1"]; }
+
+/**
+ * The value of `key` in a flat JSON object from the coach's server: a string's contents, or a literal as written
+ * (`true`, `null`, a number); "" when the key is not there. Its answers hold no escaped quotes, so this is enough.
+ */
+string jsonField(string json, string key) {
+  i32 at = json.indexOf("\"" + key + "\"");
+  if (at < 0) { return ""; }
+  i32 i = at + key.len() + 2;
+  while (i < json.len() && (json.slice(i, i + 1) == " " || json.slice(i, i + 1) == ":")) { i++; }
+  if (i < json.len() && json.slice(i, i + 1) == "\"") {
+    i32 end = json.slice(i + 1, json.len()).indexOf("\"");
+    return end < 0 ? "" : json.slice(i + 1, i + 1 + end);
+  }
+  i32 j = i;
+  while (j < json.len() && json.slice(j, j + 1) != "," && json.slice(j, j + 1) != "}" && json.slice(j, j + 1) != " ") { j++; }
+  return json.slice(i, j);
+}
+
+/**
+ * A data code as typed, kept to its letters, digits and dashes: whatever else was pasted with it goes, and what is left
+ * can be written into JSON as it is. The server normalises the rest.
+ */
+string cleanCode(string typed) {
+  u8[] b = typed.toBytes();
+  Vec<u8> out = Vec.create();
+  for (u8 c in b) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') { out.push(c); }
+  }
+  return string.fromBytes(out.toArray());
+}
+
+/**
+ * One move's line sent to the server, and not waited for: play goes on whatever the network does, and `done` hears the
+ * status the server answered, or 0 when none came.
+ */
+async void shareMove(Origin server, string line, fn<void(i32)> done) {
+  auto sent = await server.request("POST", "/api/move", postHeaders(), line.toBytes());
+  done(sent.isOk() ? sent.ok()!.status : 0);
+}
+
+/**
+ * The note under the sharing box. Sharing, it is the data code and what it is for. Not sharing, it is `lead`, then —
+ * when this browser has just stopped and still knows its code — that what was shared stays on the server, and the code
+ * is what reaches it.
+ */
+void showShare(Element note, bool sharing, string code, string lead) {
+  while (note.kids.len() > 0) { note.kidAt(0).remove(); }
+  if (sharing) {
+    note.appendText("Your data code: ");
+    note.append("code").text(code);
+    note.appendText(". Keep this code to download or delete your shared moves from any browser. Download my data adds the server's copy of them to the same file.");
+    return;
+  }
+  note.appendText(lead);
+  if (code != "") {
+    note.appendText(" Moves already shared stay on the server until you delete them: keep your data code, ");
+    note.append("code").text(code);
+    note.appendText(", if you want to download or delete them later, from here or any browser.");
+  }
+}
+
 Element stat(Element parent, string label) {
   Element row = parent.append("div");
   row.append("dt").text(label);
@@ -414,6 +488,17 @@ static string STYLE = """
                           background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
   .introcard .aboutline a { display: block; color: var(--accent); font-weight: 700; font-size: 1rem; text-decoration: none; }
   .saverow button { min-height: 36px; font-weight: 500; flex: none; }
+  .share { flex: 1 1 100%; display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+  .share.hidden { display: none; }
+  .share label { display: flex; gap: 8px; align-items: center; font-weight: 600; font-size: .92rem; cursor: pointer; }
+  .share label input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--accent); }
+  .note { color: var(--muted); font-size: .82rem; margin: 0; }
+  .note code { font: .92em ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); user-select: all; word-break: break-all; }
+  .share summary { color: var(--accent); font-size: .82rem; cursor: pointer; width: fit-content; }
+  .coderow { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+  .coderow input { flex: 1 1 100%; min-height: 36px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--rule);
+                   background: var(--bg); color: var(--text); font: .88rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .coderow button { min-height: 36px; font-weight: 500; }
   .bar { position: fixed; left: 0; right: 0; bottom: 0; background: color-mix(in srgb, var(--bg) 88%, transparent);
          backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-top: 1px solid var(--rule);
          padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
@@ -525,6 +610,37 @@ export async i32 main(Page page) {
   Element deleteButton = saveRow.append("button");
   deleteButton.text("Delete my data");
   deleteButton.attr("class", "danger");
+  // Sharing, shown once the coach's own server answers: unticked unless this browser already shares.
+  Element shareRow = saveRow.append("div");
+  shareRow.attr("class", "share hidden");
+  Element shareLabel = shareRow.append("label");
+  Element shareBox = shareLabel.append("input");
+  shareBox.attr("type", "checkbox");
+  shareLabel.appendText("Share my moves to help train the coach");
+  Element shareNote = shareRow.append("p");
+  shareNote.attr("class", "note");
+  Element shareCount = shareRow.append("p");
+  shareCount.attr("class", "note");
+  // A data code from another browser, folded away: most players never need it.
+  Element codeMore = shareRow.append("details");
+  codeMore.append("summary").text("Have a data code?");
+  Element codeRow = codeMore.append("div");
+  codeRow.attr("class", "coderow");
+  Element codeInput = codeRow.append("input");
+  codeInput.attr("type", "text");
+  codeInput.attr("placeholder", "Your data code");
+  codeInput.attr("autocomplete", "off");
+  codeInput.attr("spellcheck", "false");
+  Element codeDownload = codeRow.append("button");
+  codeDownload.text("Download");
+  Element codeDelete = codeRow.append("button");
+  codeDelete.text("Delete");
+  codeDelete.attr("class", "danger");
+  Element codeUse = codeRow.append("button");
+  codeUse.text("Use this code here");
+  Element codeLine = codeMore.append("p");
+  codeLine.attr("class", "note");
+  codeLine.text("Download or delete the moves shared under a code from any browser, or share under it from this one.");
 
   // The start screen, shown on every visit: it says what the coach is and where the moves go, and its Play is the
   // first touch browsers wait for before a page may make a sound.
@@ -534,7 +650,9 @@ export async i32 main(Page page) {
   introCard.attr("class", "introcard");
   introCard.append("h2").text("turbostack coach");
   introCard.append("p").text("Play Tetris and see what a self-taught AI makes of every move: where yours ranks among the places the piece could go, how many points it expects it to cost, and the move it would have made.");
-  introCard.append("p").text("Your moves are kept in this browser and sent nowhere. You can download or delete them at any time.");
+  // Said again once a coach server answers, when sharing is there to choose.
+  Element introData = introCard.append("p");
+  introData.text("Your moves are kept in this browser and sent nowhere. You can download or delete them at any time.");
   Element introButtons = introCard.append("div");
   introButtons.attr("class", "introbuttons");
   Element introPlay = introButtons.append("button");
@@ -586,6 +704,18 @@ export async i32 main(Page page) {
   // Delete my data asks twice: the first click arms it, the second deletes.
   bool deleteArmed = false;
   bool deleteAsked = false;
+  // Sharing: the box as the player left it, what the server has said, and the data code's buttons.
+  bool shareWanted = false;
+  bool sharing = false;
+  string code = "";
+  bool shareLost = false;
+  i32 sharedCount = 0;
+  i32 unsentCount = 0;
+  string codeTyped = "";
+  bool codeDownloadAsked = false;
+  bool codeDeleteArmed = false;
+  bool codeDeleteAsked = false;
+  bool codeUseAsked = false;
   bool introOpen = true;
   bool introPlayAsked = false;
   // The red-zone question: asked once, then never again (kept in the browser's storage where there is some).
@@ -678,6 +808,8 @@ export async i32 main(Page page) {
   app.on("keydown", Listen.keys("Enter"), (ElementEvent e) => {
     touched = true;
     page.resumeAudio();
+    // Typing a data code, or pressing Space on the sharing box, is not playing.
+    if (e.target.tag == "input") { return; }
     if (e.value == "Shift") { cycle++; ticked = true; dirty = true; }
     else if (e.value == " " || e.value == "Enter") { dropAsked = true; }
     else if (e.value == "h" || e.value == "H") { hint = !hint; dirty = true; }
@@ -699,6 +831,15 @@ export async i32 main(Page page) {
     deleteArmed = !deleteArmed;
     deleteButton.text(deleteArmed ? "Click again to delete everything" : "Delete my data");
   });
+  shareBox.on("change", Listen.none(), (ElementEvent e) => { shareWanted = !shareWanted; });
+  codeInput.on("input", Listen.none(), (ElementEvent e) => { codeTyped = e.value; });
+  codeDownload.on("click", Listen.none(), (ElementEvent e) => { codeDownloadAsked = true; });
+  codeDelete.on("click", Listen.none(), (ElementEvent e) => {
+    if (codeDeleteArmed) { codeDeleteAsked = true; }
+    codeDeleteArmed = !codeDeleteArmed;
+    codeDelete.text(codeDeleteArmed ? "Click again to delete" : "Delete");
+  });
+  codeUse.on("click", Listen.none(), (ElementEvent e) => { codeUseAsked = true; });
   introPlay.on("click", Listen.none(), (ElementEvent e) => {
     page.resumeAudio();
     introPlayAsked = true;
@@ -737,6 +878,33 @@ export async i32 main(Page page) {
   // Labels the buttons on the first pass of the loop.
   audioChanged = true;
   bool wasOver = false;
+
+  // A coach server, if one served this page: only its `/api/me` answers with "sharing". A page opened from a disk has
+  // no origin, and a static site answers 404, so either way sharing is never offered.
+  Result<Origin, string> origin = await Origin.of(page.sys);
+  bool coachServer = false;
+  if (origin.isOk()) {
+    auto me = await origin.ok()!.request("GET", "/api/me", string[](), u8[]());
+    string said = me.isOk() && me.ok()!.status == 200 ? me.ok()!.text() : "";
+    string held = jsonField(said, "sharing");
+    coachServer = held == "true" || held == "false";
+    if (coachServer) {
+      sharing = held == "true";
+      shareWanted = sharing;
+      code = sharing ? jsonField(said, "code") : "";
+      if (code == "null") { code = ""; }
+      shareBox.prop("checked", sharing ? "true" : "false");
+      showShare(shareNote, sharing, code, "Off: your moves stay in this browser. Ticked, each move you play from then on is also sent to this site's server.");
+      shareRow.attr("class", "share");
+      introData.text(sharing
+        ? "Your moves are kept in this browser, and this browser is sharing them with this site's server to help train the coach: untick “Share my moves to help train the coach” beside Download my data to stop. You can download or delete them at any time."
+        : "Your moves are kept in this browser and sent nowhere unless you choose to: sharing them, to help train the coach, is optional and off until you tick “Share my moves to help train the coach” beside Download my data. You can download or delete them at any time.");
+    }
+  }
+  // How a request to the server went, in words, for what the player asked of it.
+  fn<string(i32)> failed = (i32 status) => status == 400 ? "That is not a data code."
+    : status == 429 ? "The server is busy: try again in a minute."
+    : "The server could not do that just now: try again later.";
 
   string where = page.location();
   if (where.len() > 5 && where.slice(0, 5) == "game-") { seed = parseInt(where.slice(5, where.len())); }
@@ -885,7 +1053,92 @@ export async i32 main(Page page) {
       if ((await page.sys.files().remove("coach-index.txt", false)).isErr()) { await page.sys.writeFile("coach-index.txt", u8[]()); }
       // This game's moves so far go too; what is played from here is kept as before.
       lines = Vec.create();
-      saveLine.text("Deleted this browser's saved games.");
+      string serverPart = ".";
+      // Sharing, the server's copy goes too, and with it this browser's cookie: sharing is off after.
+      if (sharing) {
+        auto gone = await origin.ok()!.request("POST", "/api/delete-my-data", postHeaders(), "{}".toBytes());
+        i32 status = gone.isOk() ? gone.ok()!.status : 0;
+        if (status == 200) {
+          i32 files = parseInt(jsonField(gone.ok()!.text(), "deleted"));
+          serverPart = files > 0 ? ", and every move you shared from the server (\{files} \{files == 1 ? "game" : "games"}). Sharing is now off."
+                                 : ". The server held no shared moves. Sharing is now off.";
+          sharing = false;
+          shareWanted = false;
+          code = "";
+          shareBox.prop("checked", "false");
+          showShare(shareNote, false, "", "Sharing is off: your moves stay in this browser.");
+        } else {
+          serverPart = ", but not your shared moves on the server. " + failed(status);
+        }
+      }
+      saveLine.text("Deleted this browser's saved games" + serverPart);
+    }
+
+    // The sharing box, ticked or unticked: the server is asked, and the box goes back if it says no.
+    if (coachServer && shareWanted != sharing) {
+      bool on = shareWanted;
+      auto said = await origin.ok()!.request("POST", on ? "/api/share" : "/api/unshare", postHeaders(), u8[]());
+      i32 status = said.isOk() ? said.ok()!.status : 0;
+      if (status == (on ? 200 : 204)) {
+        sharing = on;
+        if (on) { code = jsonField(said.ok()!.text(), "code"); }
+        showShare(shareNote, sharing, code, "Sharing is off: moves you play from now on stay in this browser.");
+        if (on) { sharedCount = 0; unsentCount = 0; shareCount.text(""); }
+      } else {
+        shareWanted = sharing;
+        shareBox.prop("checked", sharing ? "true" : "false");
+        shareNote.text(failed(status));
+      }
+    }
+    // The server stopped taking this browser's moves — its code deleted from another browser, say: so is the box.
+    if (shareLost) {
+      shareLost = false;
+      sharing = false;
+      shareWanted = false;
+      code = "";
+      shareBox.prop("checked", "false");
+      showShare(shareNote, false, "", "Sharing has stopped: the server no longer takes moves from this browser.");
+    }
+    if (codeDownloadAsked || codeDeleteAsked || codeUseAsked) {
+      string typed = cleanCode(codeTyped);
+      string body = "{\"code\":\"" + typed + "\"}";
+      if (typed.len() == 0) {
+        codeLine.text("Type or paste a data code first.");
+      } else if (codeDownloadAsked) {
+        auto got = await origin.ok()!.request("POST", "/api/my-data", postHeaders(), body.toBytes());
+        i32 status = got.isOk() ? got.ok()!.status : 0;
+        if (status == 200) {
+          page.download("turbostack-shared-moves.jsonl", got.ok()!.body);
+          codeLine.text("Downloaded the moves kept under that code, as turbostack-shared-moves.jsonl.");
+        } else {
+          codeLine.text(status == 404 ? "Nothing is kept under that code." : failed(status));
+        }
+      } else if (codeDeleteAsked) {
+        auto gone = await origin.ok()!.request("POST", "/api/delete-my-data", postHeaders(), body.toBytes());
+        i32 status = gone.isOk() ? gone.ok()!.status : 0;
+        i32 files = status == 200 ? parseInt(jsonField(gone.ok()!.text(), "deleted")) : 0;
+        codeLine.text(status != 200 ? failed(status)
+                      : files > 0 ? "Deleted every move kept under that code (\{files} \{files == 1 ? "game" : "games"})."
+                      : "Nothing was kept under that code.");
+      } else {
+        auto took = await origin.ok()!.request("POST", "/api/code", postHeaders(), body.toBytes());
+        i32 status = took.isOk() ? took.ok()!.status : 0;
+        if (status == 200) {
+          sharing = true;
+          shareWanted = true;
+          code = jsonField(took.ok()!.text(), "code");
+          shareBox.prop("checked", "true");
+          showShare(shareNote, true, code, "");
+          codeLine.text("This browser now shares under that code: moves you play from now on are kept with it.");
+        } else {
+          codeLine.text(failed(status));
+        }
+      }
+      codeDownloadAsked = false;
+      codeDeleteAsked = false;
+      codeUseAsked = false;
+      codeDeleteArmed = false;
+      codeDelete.text("Delete");
     }
 
     i32 forcedK = -1;
@@ -919,7 +1172,7 @@ export async i32 main(Page page) {
       if (!over && k >= 0) {
         i32 span = ps.len() < NEARBY ? ps.len() : NEARBY;
         string how = "\"hint\":\{hint},\"input\":\"\{aimedByFinger ? "touch" : "mouse"}\",\"step\":\{cycle % span}";
-        Move m = Move(moves.len() + 1, board, colours, piece, ps, cs, q, la, k, page.now() - shownAt, how, false, 0, 0.0, 0);
+        Move m = Move(moves.len() + 1, board, colours, piece, ps, cs, q, la, k, page.now() - shownAt, how, sharing, false, 0, 0.0, 0);
         moves.push(m);
         if (pending < 0) { pending = moves.len() - 1; }
         colours = coloured(colours, ps[k], piece);
@@ -1011,6 +1264,16 @@ export async i32 main(Page page) {
       lines.push("{\"v\":1,\"start\":\{started},\"seed\":\{gameSeed},\"move\":\{m.number},\"piece\":\{m.piece},"
                  + "\"board\":\"\{m.before.compact()}\",\"lines\":\{m.before.linesCleared},\"score\":\{m.before.score},"
                  + "\"choice\":\{m.choice},\"best\":\{m.best},\"ms\":\{whole(m.ms)},\{m.how},\"q\":[\{qs}],\"la\":[\{las}]}");
+      if (coachServer && m.shared && sharing) {
+        shareMove(origin.ok()!, lines.get(lines.len() - 1), (i32 status) => {
+          if (status == 204) { sharedCount++; }
+          else if (status == 403) { shareLost = true; }
+          else { unsentCount++; }
+          // Only a count, so a failing server is noticed without getting in the way.
+          shareCount.text("Shared \{sharedCount} \{sharedCount == 1 ? "move" : "moves"} this visit"
+                          + (unsentCount > 0 ? " · \{unsentCount} not kept by the server" : "") + ".");
+        });
+      }
       if (canSave) {
         string text = "";
         for (i32 x = 0; x < lines.len(); x++) { text += lines.get(x) + "\n"; }
@@ -1094,10 +1357,25 @@ export async i32 main(Page page) {
       if (all.len() == 0) {
         for (i32 x = 0; x < lines.len(); x++) { all += lines.get(x) + "\n"; }
       }
+      // Sharing, the server's copy follows this browser's in the same file — one download, which browsers let through
+      // where they would stop a second — each of its lines `{"at":…,"move":{…}}`, the server's time and the move.
+      string serverPart = "";
+      if (sharing) {
+        auto mine = await origin.ok()!.request("POST", "/api/my-data", postHeaders(), "{}".toBytes());
+        i32 status = mine.isOk() ? mine.ok()!.status : 0;
+        if (status == 200) {
+          all += mine.ok()!.text();
+          serverPart = "Downloaded this browser's moves, and the server's copy of your shared moves after them in the same file.";
+        } else {
+          serverPart = status == 404 ? "Downloaded this browser's moves; the server holds no shared moves yet."
+                                     : "Downloaded this browser's moves, but not the server's copy. " + failed(status);
+        }
+      }
       if (all.len() == 0) {
         saveLine.text("No moves kept yet to download.");
       } else {
         page.download("turbostack-moves.jsonl", all.toBytes());
+        if (serverPart != "") { saveLine.text(serverPart); }
       }
     }
 

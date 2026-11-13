@@ -174,8 +174,27 @@ Node page() {
 
       <section>
         <h2>Your moves</h2>
-        <p>Each game's moves are kept in this browser's storage, and nothing is sent anywhere. Download my data saves
-          every move this browser has kept as a file, and Delete my data removes them all from this browser.</p>
+        <p>Each game's moves are kept in this browser's storage, and they stay there unless you turn sharing on. Download
+          my data saves every move this browser has kept as a file, and Delete my data removes them all from this
+          browser.</p>
+        <p>Sharing is off until you tick <em>Share my moves to help train the coach</em>. With it on, each move you play
+          from then on is sent to this site's server; moves from before are never sent. They are kept under a random ID,
+          shown to you as a data code. That makes them pseudonymous, not anonymous: anyone holding the code can read
+          them. A kept move holds:</p>
+        <ul>
+          <li>the board, its score and lines so far, and the piece you placed, with the game's start time and piece
+            sequence;</li>
+          <li>the value of every placement the piece had, your choice, and the model's;</li>
+          <li>how long you took, whether the hint was showing, whether you used a mouse or touch, and whether you
+            stepped to a nearby option;</li>
+          <li>the server's time when it arrived.</li>
+        </ul>
+        <p>No name, email or account is asked for or kept. Shared moves are kept for 12 months, then deleted. They may be
+          used to train and evaluate models, and are published only in aggregate. The server keeps daily backups for 14
+          days, so a move deleted here is gone from them within 14 days too.</p>
+        <p>Unticking the box stops sharing in this browser; what was shared stays until you delete it. Delete my data
+          removes the server's copy too while this browser is sharing, and the data code does the same from any
+          browser, under <em>Have a data code?</em>, where it can also download them.</p>
       </section>
 
       <section>

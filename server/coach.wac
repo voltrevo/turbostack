@@ -21,6 +21,8 @@
 // **On disk** each player's games are `DATA_DIR/players/<h>/<start>-<seed>.jsonl`, where `h` is a hash of the code, not
 // the code: what is on the disk or in a backup does not let anyone read a player's data back through the server. A
 // line is `{"at": <server time>, "move": <the move as the page sent it>}`, and a move number is kept once per game.
+// **A deleted code stays deleted**: its hash goes in `DATA_DIR/deleted/`, so another browser still holding it is told
+// it no longer shares (403), and the code cannot be taken up again.
 //
 // **Every state-changing request is a POST with an `x-coach: 1` header**, which a page on another site cannot send
 // without a CORS preflight this server never grants; with `ORIGIN` set, the `Origin` header must match too. Cookies are
@@ -217,9 +219,16 @@ string shownCode(string id) {
   return out;
 }
 
-/** Where a code's games are kept: named by a hash of it, so the disk does not hold the code itself. */
-string playerDir(Config c, string id) {
-  return c.dataDir + "/players/" + hex(sha256(("turbostack coach " + id).toBytes())).slice(0, 32);
+/** A code's name on disk: a hash of it, so the disk does not hold the code itself. */
+string hashed(string id) { return hex(sha256(("turbostack coach " + id).toBytes())).slice(0, 32); }
+
+/** Where a code's games are kept. */
+string playerDir(Config c, string id) { return c.dataDir + "/players/" + hashed(id); }
+
+/** Whether a code's data has been deleted, after which nothing more is kept under it. */
+async bool deleted(Sys sys, Config c, string id) {
+  auto st = await sys.files().stat(c.dataDir + "/deleted/" + hashed(id));
+  return st.isOk() && st.ok()!.exists;
 }
 
 async string newId(Sys sys) { return hex((await sys.random().bytes(16)).unwrap()); }
@@ -383,6 +392,7 @@ u8[] written(Response r) {
 async Response move(Sys sys, Config c, Request r, i64 now) {
   string id = cookieId(r);
   if (id.len() == 0) { return text(403, "This browser is not sharing its moves."); }
+  if (await deleted(sys, c, id)) { return Response(403, "text/plain; charset=utf-8", "This code's data was deleted.".toBytes(), [setId("", 0 as i64)]); }
   if (r.body.len() > MAX_MOVE) { return text(413, "A move is at most \{MAX_MOVE} bytes."); }
   if (!take(c, "move " + id, MOVE_RATE, MOVE_BURST, now)) { return text(429, "Moves are arriving too fast."); }
   i64 day = now / DAY_MS;
@@ -481,9 +491,18 @@ async Response deleteMyData(Sys sys, Config c, Request r) {
   string[] cookies = id.len() > 0 && id == cookieId(r) ? [setId("", 0 as i64)] : string[]();
   if (id.len() == 0) { return jsonResponse(200, "{\"deleted\":0}", cookies); }
   string dir = playerDir(c, id);
+  i32 files = 0;
+  i32 moves = 0;
   auto names = await sys.files().readDir(dir);
-  i32 files = names.isOk() ? names.ok()!.len() : 0;
+  if (names.isOk()) {
+    for (string name in names.ok()!) {
+      files++;
+      moves += (await lines(sys, dir + "/" + name)).len();
+    }
+  }
   i64 size = await sizeOf(sys, dir);
+  // Remembered first, so a move arriving from another browser while the files go is refused rather than kept.
+  await sys.files().writeFile(c.dataDir + "/deleted/" + hashed(id), u8[]());
   await sys.files().remove(dir, true);
   c.used.remove(dir);
   c.total[0] = c.total[0] - size;
@@ -491,7 +510,7 @@ async Response deleteMyData(Sys sys, Config c, Request r) {
   c.loaded.clear();
   c.kept.clear();
   sys.stderr().write("deleted a player's data: \{files} games\n".toBytes());
-  return jsonResponse(200, "{\"deleted\":\{files}}", cookies);
+  return jsonResponse(200, "{\"deleted\":\{files},\"moves\":\{moves}}", cookies);
 }
 
 // ── Routes ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -516,6 +535,9 @@ async Response handle(Sys sys, Config c, Request r) {
     if (r.path == "/health") { return jsonResponse(200, "{\"ok\":true}", string[]()); }
     if (r.path == "/api/me") {
       string id = cookieId(r);
+      if (id.len() > 0 && await deleted(sys, c, id)) {
+        return jsonResponse(200, "{\"sharing\":false,\"code\":null}", [setId("", 0 as i64)]);
+      }
       return jsonResponse(200, id.len() > 0 ? "{\"sharing\":true,\"code\":\"\{shownCode(id)}\"}" : "{\"sharing\":false,\"code\":null}",
                           string[]());
     }
@@ -528,7 +550,8 @@ async Response handle(Sys sys, Config c, Request r) {
   if (r.path == "/api/move") { return await move(sys, c, r, now); }
   if (r.path == "/api/share") {
     string id = cookieId(r);
-    if (id.len() == 0) { id = await newId(sys); }
+    // A browser whose code was deleted elsewhere starts again with a new one.
+    if (id.len() == 0 || await deleted(sys, c, id)) { id = await newId(sys); }
     return jsonResponse(200, "{\"code\":\"\{shownCode(id)}\"}", [setId(id, ID_SECONDS)]);
   }
   if (r.path == "/api/unshare") { return empty([setId("", 0 as i64)]); }
@@ -536,6 +559,7 @@ async Response handle(Sys sys, Config c, Request r) {
     auto parsed = parse(r.body);
     string id = parsed.isOk() ? normalCode(parsed.ok()!.member("code")?.text() ?? "") : "";
     if (id.len() == 0) { return text(400, "A data code is 32 hexadecimal digits."); }
+    if (await deleted(sys, c, id)) { return text(400, "This code's data was deleted: start sharing again for a new code."); }
     return jsonResponse(200, "{\"code\":\"\{shownCode(id)}\"}", [setId(id, ID_SECONDS)]);
   }
   if (r.path == "/api/my-data") { return await myData(sys, c, r); }
@@ -668,6 +692,7 @@ export async i32 main(Sys sys) {
                     Map.create(hashString, stringEq), Map.create(hashString, stringEq), Map.create(hashString, stringEq),
                     Map.create(hashString, stringEq), i64[].filled(1, 0 as i64), i64[].filled(1, 0 as i64), i32[].filled(1, 0));
   auto made = await sys.files().mkdir(c.dataDir + "/players", true);
+  if (made.isOk()) { made = await sys.files().mkdir(c.dataDir + "/deleted", true); }
   if (made.isErr()) {
     sys.stderr().write("coach.wac: cannot make \{c.dataDir}/players\n".toBytes());
     return 1;
