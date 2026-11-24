@@ -2,6 +2,6 @@
   // The coach's server is a project of its own, so its dependencies are its own: wac's `crypto` and `json`
   // namespaces, at the commit the `wac` that builds it was bootstrapped from.
   imports: {
-    wac: { git: 'https://git.voltrevo.com/wac.git', ref: '3e430f338603ae64fa2107fa3f1e43af876eb821' },
+    wac: { git: 'https://github.com/voltrevo/wac.git', ref: '3e430f338603ae64fa2107fa3f1e43af876eb821' },
   },
 }
